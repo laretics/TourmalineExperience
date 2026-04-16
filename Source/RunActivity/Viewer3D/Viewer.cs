@@ -26,6 +26,7 @@ using System.Management;
 using System.Threading;
 using System.Windows.Forms;
 using GNU.Gettext;
+using Microsoft.CodeAnalysis;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -40,8 +41,8 @@ using Orts.Simulation.Timetables;
 using Orts.Viewer3D.Popups;
 using Orts.Viewer3D.Processes;
 using Orts.Viewer3D.RollingStock;
-using Orts.Viewer3D.WebServices.SwitchPanel;
 using Orts.Viewer3D.WebServices;
+using Orts.Viewer3D.WebServices.SwitchPanel;
 using ORTS.Common;
 using ORTS.Common.Input;
 using ORTS.Scripting.Api;
@@ -61,7 +62,7 @@ namespace Orts.Viewer3D
         public LoaderProcess LoaderProcess { get; private set; }
         public UpdaterProcess UpdaterProcess { get; private set; }
         public RenderProcess RenderProcess { get; private set; }
-        public SoundProcess SoundProcess { get; private set; }
+        public SoundProcessX SoundProcess { get; private set; }
         // Access to the XNA Game class
         public GraphicsDevice GraphicsDevice { get; private set; }
         public string ContentPath { get; private set; }
@@ -146,6 +147,8 @@ namespace Orts.Viewer3D
         public List<FreeRoamCamera> FreeRoamCameraList = new List<FreeRoamCamera>();
         public FreeRoamCamera FreeRoamCamera { get { return FreeRoamCameraList[0]; } } // Camera 8
 
+        public TourmalineCamera TourmalineCamera { get; private set; } //Cámara de Tourmaline
+
         /// <summary>
         /// Activate the 2D or 3D cab camera depending on the current player preference.
         /// </summary>
@@ -210,6 +213,21 @@ namespace Orts.Viewer3D
         // Dictionary associating a specific shape file path (string) with the track profile index to be used for that shape
         // Shape file locations are to be matched ignoring case for simplicity
         public Dictionary<string, int> TrackProfileIndicies = new Dictionary<string, int>(StringComparer.InvariantCultureIgnoreCase);
+
+        //#######TOURMALINE#######################################################################################
+        private bool mvarEnableStreaming = true; //Envío de fotogramas por la red local.
+        private bool mvarEnableLocalRender = true; //Imagen en el monitor del equipo local.
+        private SpriteBatch mvarSpriteBatch; //Componente para un escalado de calidad.
+
+        private Process mvarFFmpegProcess;
+        private RenderTarget2D mvarStreamingRenderTarget;
+        private const int STREAM_WIDTH = 800;
+        private const int STREAM_HEIGHT = 600;
+        private const int STREAM_FPS = 20;
+        private byte[] mvarFrameBuffer;
+
+        private readonly string mvarFFmpegPath = @".\content\ffmpeg.exe";
+        //#######TOURMALINE#######################################################################################
 
         enum VisibilityState
         {
@@ -338,7 +356,7 @@ namespace Orts.Viewer3D
             WellKnownCameras.Add(TracksideCamera = new TracksideCamera(this));
             WellKnownCameras.Add(SpecialTracksideCamera = new SpecialTracksideCamera(this));
             WellKnownCameras.Add(new FreeRoamCamera(this, FrontCamera)); // Any existing camera will suffice to satisfy .Save() and .Restore()
-            WellKnownCameras.Add(ThreeDimCabCamera = new ThreeDimCabCamera(this));
+            WellKnownCameras.Add(ThreeDimCabCamera = new ThreeDimCabCamera(this));            
 
             string ORfilepath = System.IO.Path.Combine(Simulator.RoutePath, "OpenRails");
             ContentPath = Game.ContentPath;
@@ -481,6 +499,7 @@ namespace Orts.Viewer3D
         internal void Initialize()
         {
             GraphicsDevice = RenderProcess.GraphicsDevice;
+
             UpdateAdapterInformation(GraphicsDevice.Adapter);
             DefaultViewport = GraphicsDevice.Viewport;
 
@@ -571,11 +590,22 @@ namespace Orts.Viewer3D
                     World.GameSounds.HandleEvent(Event.ControlError);
             };
             Simulator.Confirmer.DisplayMessage += (s, e) => MessagesWindow.AddMessage(e.Key, e.Text, e.Duration);
-
+                       
             if (CabCamera.IsAvailable || ThreeDimCabCamera.IsAvailable)
                 ActivateCabCamera();
             else
                 CameraActivate();
+
+            //Empezamos activando la cámara exterior.
+            if(FrontCamera.IsAvailable)
+            {
+                FrontCamera.Activate();
+                TourmalineCamera = new TourmalineCamera(this, FrontCamera);
+                // //Sineu
+                TourmalineCamera.SetLocation(39.67832642746927, 2.809191980242264, 30); //Consell - Alaró
+                //TourmalineCamera.SetLocation(9.64398868829035, 3.0144281781536293, 30); //Sineu
+                TourmalineCamera.Activate();                
+            }
 
             // Prepare the world to be loaded and then load it from the correct thread for debugging/tracing purposes.
             // This ensures that a) we have all the required objects loaded when the 3D view first appears and b) that
@@ -590,6 +620,20 @@ namespace Orts.Viewer3D
 
             SetCommandReceivers();
             InitReplay();
+            //#######TOURMALINE#######################################################################################
+            if (mvarEnableStreaming)
+            {
+                mvarStreamingRenderTarget = new RenderTarget2D(GraphicsDevice, STREAM_WIDTH, STREAM_HEIGHT,
+                    false, SurfaceFormat.Bgra32, DepthFormat.None);
+
+                mvarFrameBuffer = new byte[STREAM_WIDTH * STREAM_HEIGHT * 4];
+                mvarSpriteBatch = new SpriteBatch(GraphicsDevice);
+
+                StartFFmpegProcess();
+                Console.WriteLine("[Tourmaline Streaming] Inicializado con SpriteBatch bilinear");
+            }
+            //#######TOURMALINE#######################################################################################
+
         }
 
         /// <summary>
@@ -1273,7 +1317,16 @@ namespace Orts.Viewer3D
                 }
                 return; 
             }
-            if (UserInput.IsPressed(UserCommand.DebugSoundForm)) { SoundDebugFormEnabled = !SoundDebugFormEnabled; return; }
+            //#######TOURMALINE#######################################################################################
+            //if (UserInput.IsPressed(UserCommand.DebugSoundForm)) { SoundDebugFormEnabled = !SoundDebugFormEnabled; return; }
+            if(UserInput.IsPressed(UserCommand.DebugSoundForm))
+            {
+                mvarEnableStreaming = !mvarEnableStreaming;
+                Simulator.Confirmer.Message(ConfirmLevel.Information,
+                    mvarEnableStreaming ? "Streaming activado (640x480)" : "Streaming desactivado");
+            }
+
+            //#######TOURMALINE#######################################################################################
 
             if (UserInput.IsPressed(UserCommand.CameraJumpSeeSwitch))
             {
@@ -1814,7 +1867,6 @@ namespace Orts.Viewer3D
                 WindowManager.ScreenChanged();
                 AdjustCabHeight(DisplaySize.X, DisplaySize.Y);
             }
-
             MaterialManager.UpdateShaders();
         }
 
@@ -1855,7 +1907,71 @@ namespace Orts.Viewer3D
                 SaveScreenshotToFile(Game.GraphicsDevice, Path.Combine(UserSettings.UserDataFolder, SaveActivityFileStem + ".png"), true);
                 MessagesWindow.AddMessage(Catalog.GetString("Game saved"), 5);
             }
+            //#######TOURMALINE#######################################################################################
+            if (mvarEnableStreaming && null != mvarFFmpegProcess && !mvarFFmpegProcess.HasExited)
+            {
+                try
+                {
+                    int bufferSize = STREAM_WIDTH * STREAM_HEIGHT * 4;
+                    if (mvarFrameBuffer == null || mvarFrameBuffer.Length != bufferSize)
+                        mvarFrameBuffer = new byte[bufferSize];
+
+                    GraphicsDevice.GetBackBufferData(mvarFrameBuffer);
+
+                    // Corrección RGBA → BGRA
+                    for (int i = 0; i < bufferSize; i += 4)
+                    {
+                        byte temp = mvarFrameBuffer[i];
+                        mvarFrameBuffer[i] = mvarFrameBuffer[i + 2];
+                        mvarFrameBuffer[i + 2] = temp;
+                    }
+
+                    mvarFFmpegProcess.StandardInput.BaseStream.Write(mvarFrameBuffer, 0, bufferSize);
+                    mvarFFmpegProcess.StandardInput.BaseStream.Flush();
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[Tourmaline Streaming] Error enviando frame: {ex.Message}");
+                    mvarEnableStreaming = false;
+                }
+            }
+            //#######TOURMALINE#######################################################################################
         }
+
+        //#######TOURMALINE#######################################################################################
+        private void StartFFmpegProcess()
+        {
+            if (null != mvarFFmpegProcess && !mvarFFmpegProcess.HasExited) return;
+
+            try
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = mvarFFmpegPath,
+                    Arguments =
+                        $"-f rawvideo -pix_fmt bgra -s {STREAM_WIDTH}x{STREAM_HEIGHT} -r 60 -i - " +   // entrada real
+                        $"-vf \"fps={STREAM_FPS},setpts=PTS-STARTPTS\" " +                             // forzamos fps + reset timestamps
+                        "-c:v h264_nvenc -preset llhp -tune ll -cq 32 " +
+                        "-pix_fmt yuv420p " +
+                        "-g 15 -bf 0 " +
+                        "-f rtsp rtsp://localhost:8554/openrails",
+
+                    RedirectStandardInput = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                mvarFFmpegProcess = Process.Start(startInfo);
+                Console.WriteLine($"[Tourmaline Streaming] Forzando FPS={STREAM_FPS} con fps + setpts");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tourmaline Streaming] Error: {ex.Message}");
+                mvarEnableStreaming = false;
+            }
+        }
+        //#######TOURMALINE#######################################################################################
+
 
         [CallOnThread("Render")]
         void SaveScreenshotToFile(GraphicsDevice graphicsDevice, string fileName, bool silent)

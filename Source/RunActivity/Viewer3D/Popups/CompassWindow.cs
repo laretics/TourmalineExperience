@@ -30,6 +30,8 @@ namespace Orts.Viewer3D.Popups
 		PopupCompass Compass;
 		Label Latitude;
 		Label Longitude;
+        Label TileX;
+        Label TileZ;
 
 		public CompassWindow(WindowManager owner)
 			: base(owner, Window.DecorationSize.X + owner.TextFontDefault.Height * 15, Window.DecorationSize.Y + owner.TextFontDefault.Height * 4, Viewer.Catalog.GetString("Compass"))
@@ -48,7 +50,13 @@ namespace Orts.Viewer3D.Popups
 				hbox.AddSpace(w, hbox.RemainingHeight);
 				hbox.Add(new Label(1 * w, hbox.RemainingHeight, Viewer.Catalog.GetString("Lon:"), LabelAlignment.Right));
 				hbox.Add(Longitude = new Label(3 * w, hbox.RemainingHeight, "000.000000", LabelAlignment.Right));
-			}
+                hbox.AddSpace(w, hbox.RemainingHeight);
+                hbox.Add(new Label(1 * w, hbox.RemainingHeight, "Tile X:", LabelAlignment.Right));                
+                hbox.Add(TileX = new Label(3 * w, hbox.RemainingHeight, "0000", LabelAlignment.Right));
+                hbox.AddSpace(w, hbox.RemainingHeight);
+                hbox.Add(new Label(1 * w, hbox.RemainingHeight, "Tile Z:", LabelAlignment.Right));
+                hbox.Add(TileZ = new Label(3 * w, hbox.RemainingHeight, "0000", LabelAlignment.Right));
+            }
 			return vbox;
 		}
 
@@ -69,6 +77,8 @@ namespace Orts.Viewer3D.Popups
                 new WorldLatLon().ConvertWTC(camera.TileX, camera.TileZ, camera.Location, ref latitude, ref longitude);
                 Latitude.Text = MathHelper.ToDegrees((float)latitude).ToString("F6");
                 Longitude.Text = MathHelper.ToDegrees((float)longitude).ToString("F6");
+                TileX.Text = camera.TileX.ToString();
+                TileZ.Text = camera.TileZ.ToString();
             }
 		}
 	}

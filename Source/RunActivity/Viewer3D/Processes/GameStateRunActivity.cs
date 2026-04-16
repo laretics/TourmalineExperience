@@ -333,6 +333,7 @@ namespace Orts.Viewer3D.Processes
         /// <summary>
         /// Run the specified activity from the beginning.
         /// This is the start for MSTS Activity or Explorer mode or Timetable mode
+        /// Añadido arranque en modo Tourmaline.
         /// </summary>
         void Start(UserSettings settings, string acttype, string[] args)
         {
@@ -365,7 +366,9 @@ namespace Orts.Viewer3D.Processes
 
             Viewer = new Viewer(Simulator, Game);
 
-            Game.ReplaceState(new GameStateViewer3D(Viewer));
+            //Controlamos el arranque en modo tourmaline.
+            bool tourmalineMode = args.Length>5 && args[5] == "t";
+            Game.ReplaceState(new GameStateViewer3D(Viewer,tourmalineMode));
         }
 
         /// <summary>

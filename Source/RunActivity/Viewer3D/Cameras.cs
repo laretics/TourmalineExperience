@@ -34,6 +34,7 @@ using Orts.Viewer3D.Popups;
 using ORTS.Common;
 using ORTS.Common.Input;
 using ORTS.Settings;
+using static System.Resources.ResXFileRef;
 
 namespace Orts.Viewer3D
 {
@@ -602,7 +603,7 @@ namespace Orts.Viewer3D
     {
         const float maxCameraHeight = 1000f;
         const float ZoomFactor = 2f;
-
+        internal WorldLatLon mvarConversor = new WorldLatLon();
         public override string Name { get { return Viewer.Catalog.GetString("Free"); } }
 
         public FreeRoamCamera(Viewer viewer, Camera previousCamera)
@@ -613,6 +614,13 @@ namespace Orts.Viewer3D
         public void SetLocation(WorldLocation location)
         {
             cameraLocation = location;
+        }
+
+        public void SetLocation(double latitude, double longitude,float height)
+        {            
+            WorldLocation auxLocation = new WorldLocation();
+            mvarConversor.ConvertLatLonToWTC(latitude, longitude, height,out auxLocation.TileX, out auxLocation.TileZ, out auxLocation.Location);            
+            SetLocation(auxLocation);
         }
 
         public override void Reset()
@@ -773,6 +781,19 @@ namespace Orts.Viewer3D
             movement.Z += speed;
             ZRadians += movement.Z;
             MoveCamera(movement);
+        }
+    }
+
+    public class TourmalineCamera : FreeRoamCamera
+    {
+        public TourmalineCamera(Viewer viewer, Camera previousCamera) : base(viewer, previousCamera)
+        {
+        }
+        public override void Update(ElapsedTime elapsedTime)
+        {            
+            //WorldLocation auxLoca = cameraLocation;
+            //SetLocation(new WorldLocation(-6119, 14303, new Vector3(-47, 10, 931)));
+            base.Update(elapsedTime);
         }
     }
 
@@ -964,6 +985,8 @@ namespace Orts.Viewer3D
             UpdateListener();
         }
     }
+
+
 
     public class TrackingCamera : AttachedCamera
     {

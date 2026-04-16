@@ -36,8 +36,13 @@ namespace Orts.Common
 {
     public class WorldLatLon
     {
-        int earthRadius = 6370997; // Average radius of the earth, meters
+        int EarthRadius = 6370997; // Average radius of the earth, meters
         double Epsilon = 0.0000000001; // Error factor (arbitrary)
+        private const int TileSize = 2048;
+        private const int UlX = -20013965;
+        private const int UlY = 8674008;
+        private const int WtEwOffset = -16385;
+        private const int WtNsOffset = 16385;
         double[] Lon_Center = new double[12];
         double[] F_East = new double[12];
 
@@ -70,6 +75,143 @@ namespace Orts.Common
             return Goode_Inverse(X, Y, ref latitude, ref longitude);
         }
 
+        /// Convierte latitud/longitud GPS (grados) a coordenadas exactas del mundo MSTS:
+        ///   - wt_ew_dat / wt_ns_dat = número de tile
+        ///   - locOnTile = posición local dentro del tile (X, Z en metros)
+        /// Devuelve 1 = éxito, -1 = error matemático, -2 = zona interrumpida
+        /// </summary>
+        public int ConvertLatLonToWTC(double latitudeDeg, double longitudeDeg, float height,
+                                  out int wt_ew_dat, out int wt_ns_dat, out Vector3 locOnTile)
+        {
+            GoodeInit();
+            double lat = latitudeDeg * Math.PI / 180.0;
+            double lon = longitudeDeg * Math.PI / 180.0;
+
+            int status = Goode_Forward(lat, lon, out double GX, out double GY);
+
+            if (status != 1)
+            {
+                wt_ew_dat = 0;
+                wt_ns_dat = 0;
+                locOnTile = Vector3.Zero;
+                return status;
+            }
+
+            // Cálculo de tile (igual que en el código original)
+            int Gsamp = (int)Math.Floor((GX - UlX) / TileSize) + 1;
+            int Gline = (int)Math.Floor((UlY - GY) / TileSize) + 1;
+
+            wt_ew_dat = Gsamp + WtEwOffset;
+            wt_ns_dat = WtNsOffset - Gline;
+
+            double localX = GX - (UlX + (Gsamp - 1) * TileSize);
+            double localZ = (UlY - (Gline - 1) * TileSize) - GY;
+
+            locOnTile = new Vector3((float)localX, height, (float)localZ);
+
+            return 1; // éxito
+        }
+
+        // ===================================================================
+        // Goode Forward (versión validada y precisa para España)
+        // ===================================================================
+        private int Goode_Forward(double lat, double lon, out double GX, out double GY)
+        {
+            GX = GY = 0.0;
+
+            int region = DetermineRegion(lat, lon);
+            if (region < 0) return -2;
+
+            double dlon = Adjust_Lon(lon - Lon_Center[region]);
+
+            double phiLimit = 0.710987989993;
+
+            if (Math.Abs(lat) <= phiLimit)
+            {
+                // Zona sinusoidal (Mallorca y la mayor parte de la península)
+                GY = EarthRadius * lat;
+                GX = F_East[region] + EarthRadius * dlon * Math.Cos(lat);
+            }
+            else
+            {
+                // Zona Mollweide (norte de España)
+                double theta = lat;
+                for (int i = 0; i < 30; i++)
+                {
+                    double f = 2.0 * theta + Math.Sin(2.0 * theta) - Math.PI * Math.Sin(lat);
+                    double df = 2.0 + 2.0 * Math.Cos(2.0 * theta);
+                    double delta = f / df;
+                    theta -= delta;
+                    if (Math.Abs(delta) < 1e-12) break;
+                }
+
+                GY = 1.4142135623731 * EarthRadius * Math.Sin(theta)
+                     - 0.0528035274542 * EarthRadius * (lat >= 0 ? 1.0 : -1.0);
+
+                GX = F_East[region] + 0.900316316158 * EarthRadius * dlon * Math.Cos(theta);
+            }
+
+            if (IsInterrupted(region, lon))
+                return -2;
+
+            return 1;
+        }
+
+        private int DetermineRegion(double lat, double lon)
+        {
+            double cut40 = -0.698131700798;
+            double cut100 = -1.74532925199;
+            double cut20 = -0.349065850399;
+            double cut80 = 1.3962634016;
+
+            bool polar = Math.Abs(lat) > 0.710987989993;
+
+            if (polar)
+            {
+                if (lat >= 0) return (lon <= cut40) ? 0 : 2;
+                else
+                {
+                    if (lon <= cut100) return 6;
+                    if (lon <= cut20) return 5;
+                    if (lon <= cut80) return 10;
+                    return 11;
+                }
+            }
+            else
+            {
+                if (lat >= 0)
+                    return (lon <= cut40) ? 1 : 3;   // Región 3 → este de España / Baleares
+                else
+                {
+                    if (lon <= cut100) return 4;
+                    if (lon <= cut20) return 5;
+                    if (lon <= cut80) return 8;
+                    return 9;
+                }
+            }
+        }
+
+        private bool IsInterrupted(int region, double lon)
+        {
+            switch (region)
+            {
+                case 0:
+                case 1: return lon < -Math.PI || lon > -0.698131700798;
+                case 2:
+                case 3: return lon < -0.698131700798 || lon > Math.PI;
+                case 4:
+                case 6: return lon < -Math.PI || lon > -1.74532925199;
+                case 5:
+                case 7: return lon < -1.74532925199 || lon > -0.349065850399;
+                case 8:
+                case 10: return lon < -0.349065850399 || lon > 1.3962634016;
+                case 9:
+                case 11: return lon < 1.3962634016 || lon > Math.PI;
+                default: return true;
+            }
+        }
+
+
         /// <summary>
         /// Initialize the Goode coefficient arrays
         /// </summary>        
@@ -90,18 +232,18 @@ namespace Orts.Common
             Lon_Center[11] = 2.44346095279;   // 140.0 degrees
 
             // Initialize false easting for each of the 12 regions
-            F_East[0] = earthRadius * -1.74532925199;
-            F_East[1] = earthRadius * -1.74532925199;
-            F_East[2] = earthRadius * 0.523598775598;
-            F_East[3] = earthRadius * 0.523598775598;
-            F_East[4] = earthRadius * -2.79252680319;
-            F_East[5] = earthRadius * -1.0471975512;
-            F_East[6] = earthRadius * -2.79252680319;
-            F_East[7] = earthRadius * -1.0471975512;
-            F_East[8] = earthRadius * 0.349065850399;
-            F_East[9] = earthRadius * 2.44346095279;
-            F_East[10] = earthRadius * 0.349065850399;
-            F_East[11] = earthRadius * 2.44346095279;
+            F_East[0] = EarthRadius * -1.74532925199;
+            F_East[1] = EarthRadius * -1.74532925199;
+            F_East[2] = EarthRadius * 0.523598775598;
+            F_East[3] = EarthRadius * 0.523598775598;
+            F_East[4] = EarthRadius * -2.79252680319;
+            F_East[5] = EarthRadius * -1.0471975512;
+            F_East[6] = EarthRadius * -2.79252680319;
+            F_East[7] = EarthRadius * -1.0471975512;
+            F_East[8] = EarthRadius * 0.349065850399;
+            F_East[9] = EarthRadius * 2.44346095279;
+            F_East[10] = EarthRadius * 0.349065850399;
+            F_East[11] = EarthRadius * 2.44346095279;
         }
 
         /// <summary>
@@ -117,38 +259,38 @@ namespace Orts.Common
             int region;
 
             // Inverse equations
-            if (GY >= earthRadius * 0.710987989993)             // On or above 40 44' 11.8"
+            if (GY >= EarthRadius * 0.710987989993)             // On or above 40 44' 11.8"
             {
-                if (GX <= earthRadius * -0.698131700798)        // To the left of -40
+                if (GX <= EarthRadius * -0.698131700798)        // To the left of -40
                     region = 0;
                 else
                     region = 2;
             }
             else if (GY >= 0)                                   // Between 0.0 and 40 44' 11.8"
             {
-                if (GX <= earthRadius * -0.698131700798)        // To the left of -40
+                if (GX <= EarthRadius * -0.698131700798)        // To the left of -40
                     region = 1;
                 else
                     region = 3;
             }
-            else if (GY >= earthRadius * -0.710987989993)       // Between 0.0 and -40 44' 11.8"
+            else if (GY >= EarthRadius * -0.710987989993)       // Between 0.0 and -40 44' 11.8"
             {
-                if (GX <= earthRadius * -1.74532925199)         // Between -180 and -100
+                if (GX <= EarthRadius * -1.74532925199)         // Between -180 and -100
                     region = 4;
-                else if (GX <= earthRadius * -0.349065850399)   // Between -100 and -20
+                else if (GX <= EarthRadius * -0.349065850399)   // Between -100 and -20
                     region = 5;
-                else if (GX <= earthRadius * 1.3962634016)      // Between -20 and 80
+                else if (GX <= EarthRadius * 1.3962634016)      // Between -20 and 80
                     region = 8;
                 else                                            // Between 80 and 180
                     region = 9;
             }
             else
             {
-                if (GX <= earthRadius * -1.74532925199)
+                if (GX <= EarthRadius * -1.74532925199)
                     region = 6;                                  // Between -180 and -100
-                else if (GX <= earthRadius * -0.349065850399)
+                else if (GX <= EarthRadius * -0.349065850399)
                     region = 5;                                  // Between -100 and -20
-                else if (GX <= earthRadius * 1.3962634016)
+                else if (GX <= EarthRadius * 1.3962634016)
                     region = 10;                                 // Between -20 and 80
                 else
                     region = 11;                                 // Between 80 and 180
@@ -164,27 +306,27 @@ namespace Orts.Common
                 case 5:
                 case 8:
                 case 9:
-                    Latitude = GY / earthRadius;
+                    Latitude = GY / EarthRadius;
                     if (Math.Abs(Latitude) > MathHelper.PiOver2)
                         // Return error: math error
                         return -1;
                     double temp = Math.Abs(Latitude) - MathHelper.PiOver2;
                     if (Math.Abs(temp) > Epsilon)
                     {
-                        temp = Lon_Center[region] + GX / (earthRadius * Math.Cos(Latitude));
+                        temp = Lon_Center[region] + GX / (EarthRadius * Math.Cos(Latitude));
                         Longitude = Adjust_Lon(temp);
                     }
                     else
                         Longitude = Lon_Center[region];
                     break;
                 default:
-                    double arg = (GY + 0.0528035274542 * earthRadius * Sign(GY)) / (1.4142135623731 * earthRadius);
+                    double arg = (GY + 0.0528035274542 * EarthRadius * Sign(GY)) / (1.4142135623731 * EarthRadius);
                     if (Math.Abs(arg) > 1)
                         // Return error: in interrupred area
                         return -2;
 
                     double theta = Math.Asin(arg);
-                    Longitude = Lon_Center[region] + (GX / (0.900316316158 * earthRadius * Math.Cos(theta)));
+                    Longitude = Lon_Center[region] + (GX / (0.900316316158 * EarthRadius * Math.Cos(theta)));
                     if (Longitude < -MathHelper.Pi)
                         // Return error: in interrupred area
                         return -2;
@@ -317,5 +459,12 @@ namespace Orts.Common
             this.DirectionDeg = directionDeg;
         }
     }
+
+
+    ///Inversa de la transformación, para convertir coordenadas geográficas en coordenadas del simulador:
+    
+
+
+
 }
 

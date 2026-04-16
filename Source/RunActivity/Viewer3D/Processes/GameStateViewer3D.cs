@@ -32,9 +32,19 @@ namespace Orts.Viewer3D.Processes
 
         public GameStateViewer3D(Viewer viewer)
         {
-            Viewer = viewer;
+            Viewer = viewer;            
             Viewer.Simulator.Paused = true;
             Viewer.QuitWindow.Visible = true;
+            SoundProcessX.Active = true;
+        }
+        public GameStateViewer3D(Viewer viewer, bool TourmalineMode):this(viewer)
+        {
+            if (TourmalineMode)
+            {
+                Viewer.Simulator.Paused = false;
+                Viewer.QuitWindow.Visible=false;
+                SoundProcessX.Active = false;
+            }                       
         }
 
         internal override void BeginRender(RenderFrame frame)

@@ -69,7 +69,7 @@ namespace Orts.Viewer3D.Processes
         /// <summary>
         /// Exposes access to the <see cref="SoundProcess"/> for the game.
         /// </summary>
-        public SoundProcess SoundProcess { get; private set; }
+        public SoundProcessX SoundProcess { get; private set; }
 
         /// <summary>
         /// Exposes access to the <see cref="WebServer"/> for the game.
@@ -101,7 +101,7 @@ namespace Orts.Viewer3D.Processes
             RenderProcess = new RenderProcess(this);
             UpdaterProcess = new UpdaterProcess(this);
             LoaderProcess = new LoaderProcess(this);
-            SoundProcess = new SoundProcess(this);
+            SoundProcess = new SoundProcessX(this);
             WebServerProcess = new WebServerProcess(this);
             HostProcess = new HostProcess(this);
             States = new Stack<GameState>();

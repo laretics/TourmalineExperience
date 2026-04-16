@@ -1,0 +1,8 @@
+rtspAddress: :8554
+hlsAddress: :8888
+
+logLevel: debug
+
+paths:
+  openrails:
+    source: publisher

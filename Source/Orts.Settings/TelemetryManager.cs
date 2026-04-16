@@ -1,4 +1,4 @@
-// COPYRIGHT 2009 - 2024 by the Open Rails project.
+﻿// COPYRIGHT 2009 - 2024 by the Open Rails project.
 //
 // This file is part of Open Rails.
 //
@@ -70,7 +70,7 @@ namespace ORTS.Settings
                 RandomNumber1000.Value = new Random().Next(1, 1001);
             }
 
-            HttpClient.DefaultRequestHeaders.Add("User-Agent", $"{ApplicationInfo.ProductName}/{VersionInfo.VersionOrBuild}");
+            //HttpClient.DefaultRequestHeaders.Add("User-Agent", $"{ApplicationInfo.ProductName}/{VersionInfo.VersionOrBuild}");
         }
 
         /// <summary>
