@@ -219,7 +219,7 @@ namespace Orts.Viewer3D
         private TourmalineCommandSystem mvarTourmalineCommandSystem; //Elemento para interactuar con el server API-REST
 
         // Características del streaming
-        private bool mvarEnableStreaming = false;
+        private bool mvarEnableStreaming = true;
         private Process mvarFFmpegProcess;
 
         public const int STREAM_WIDTH = 640;

@@ -5,7 +5,9 @@ using TourmalineVirtualExperience;
 
 public class TourmalineVirtualService
 {
-    private Process? mvarCurrentProcess;
+    private Process? mvarSimulatorProcess;
+    private IConfiguration mvarConfig;
+    private ILogger<TourmalineVirtualService> mvarLogger;
     private readonly string mvarRuntimePath;
     private readonly string mvarMSTSPath;
     private const string MSTS_ROUTES_PATH = "ROUTES";
@@ -13,11 +15,15 @@ public class TourmalineVirtualService
     private const string MSTS_TRAINS_PATH = "TRAINS";
     private const string MSTS_CONSISTS_PATH = "CONSISTS";
 
-    public TourmalineVirtualService(IConfiguration config)
+    public TourmalineVirtualService(IConfiguration config,
+                                    ILogger<TourmalineVirtualService> logger
+                                    )
     {
-        mvarRuntimePath = config["OpenRails:RunActivityPath"]
+        mvarConfig = config;
+        mvarLogger = logger;
+        mvarRuntimePath = mvarConfig["OpenRails:RunActivityPath"]
             ?? @"C:\Program Files\Open Rails\RunActivity.exe";
-        mvarMSTSPath = config["OpenRails:MSTSPath"]
+        mvarMSTSPath = mvarConfig["OpenRails:MSTSPath"]
             ?? @"C:\MSTS";
 
         if (!File.Exists(mvarRuntimePath))
@@ -28,7 +34,7 @@ public class TourmalineVirtualService
 
     public async Task<LaunchResult> LaunchOpenRailsAsync(LaunchRequest request)
     {
-        if (mvarCurrentProcess != null && !mvarCurrentProcess.HasExited)
+        if (mvarSimulatorProcess != null && !mvarSimulatorProcess.HasExited)
             return new LaunchResult { Success = false, Message = "Ya hay una simulación en ejecución." };
 
         string exePath = mvarRuntimePath; //string.IsNullOrWhiteSpace(request.OpenRailsPath)
@@ -53,13 +59,13 @@ public class TourmalineVirtualService
                 CreateNoWindow = false
             };
 
-            mvarCurrentProcess = Process.Start(startInfo);
+            mvarSimulatorProcess = Process.Start(startInfo);
 
             return new LaunchResult
             {
                 Success = true,
                 Message = "RunActivity iniciado correctamente.",
-                ProcessId = mvarCurrentProcess?.Id,
+                ProcessId = mvarSimulatorProcess?.Id,
                 CommandLine = $"{exePath} {arguments}"
             };
         }
@@ -71,14 +77,14 @@ public class TourmalineVirtualService
 
     public async Task<StopResult> StopOpenRailsAsync()
     {
-        if (mvarCurrentProcess == null || mvarCurrentProcess.HasExited)
+        if (mvarSimulatorProcess == null || mvarSimulatorProcess.HasExited)
             return new StopResult { Success = false, Message = "No hay ninguna simulación en ejecución." };
 
         try
         {
-            mvarCurrentProcess.Kill(true);
-            await mvarCurrentProcess.WaitForExitAsync();
-            mvarCurrentProcess = null;
+            mvarSimulatorProcess.Kill(true);
+            await mvarSimulatorProcess.WaitForExitAsync();
+            mvarSimulatorProcess = null;
 
             return new StopResult { Success = true, Message = "Simulación detenida correctamente." };
         }
@@ -90,7 +96,7 @@ public class TourmalineVirtualService
 
     public async Task<object> SendCommandAsync(object commandJson)
     {
-        if (null== mvarCurrentProcess  || mvarCurrentProcess.HasExited)
+        if (null== mvarSimulatorProcess  || mvarSimulatorProcess.HasExited)
             return new { Success = false, Message = "No hay ninguna simulación en ejecución." };
 
         try
@@ -119,8 +125,8 @@ public class TourmalineVirtualService
     {
         return new
         {
-            IsRunning = mvarCurrentProcess != null && !mvarCurrentProcess.HasExited,
-            ProcessId = mvarCurrentProcess?.Id,
+            IsRunning = mvarSimulatorProcess != null && !mvarSimulatorProcess.HasExited,
+            ProcessId = mvarSimulatorProcess?.Id,
             ExecutablePath = mvarRuntimePath
         };
     }

@@ -4,6 +4,7 @@ using TourmalineVirtualExperience;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+builder.Services.AddHostedService<MediaMTXManager>();
 builder.Services.AddSingleton<TourmalineVirtualService>();
 
 var app = builder.Build();
