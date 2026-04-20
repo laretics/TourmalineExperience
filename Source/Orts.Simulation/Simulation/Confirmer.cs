@@ -384,6 +384,9 @@ namespace Orts.Simulation
 
         void Message(CabControl control, ConfirmLevel level, string message)
         {
+            //#######TOURMALINE#######################################################################################
+            return;
+            //#######TOURMALINE#######################################################################################
             // Suppress control messages
             //
             // Cab control confirmations have level None. They are suppressed 

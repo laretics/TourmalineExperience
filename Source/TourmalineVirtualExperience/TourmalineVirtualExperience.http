@@ -1,0 +1,6 @@
+@TourmalineVirtualExperience_HostAddress = http://localhost:5237
+
+GET {{TourmalineVirtualExperience_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

@@ -103,6 +103,9 @@ namespace Orts.Simulation.Physics
         public float Length;                             // length of train from FrontTDBTraveller to RearTDBTraveller
         public float MassKg;                             // weight of the train
         public float SpeedMpS;                           // meters per second +ve forward, -ve when backing
+        //#######TOURMALINE#######################################################################################
+        public float? ForcedSpeedMpS { get; set; } = null; //Velocidad objetivo para forzar al tren.
+        //#######TOURMALINE#######################################################################################
         float LastSpeedMpS;                              // variable to remember last speed used for projected speed
         public SmoothedData AccelerationMpSpS = new SmoothedData(); // smoothed acceleration data
         public float ProjectedSpeedMpS;                  // projected speed
@@ -2111,7 +2114,7 @@ namespace Orts.Simulation.Physics
                 foreach (var car in Cars) { car.SpeedMpS = 0; } //can set crash here by setting XNA matrix
                 SignalEvent(Event._ResetWheelSlip);//reset everything to 0 power
             }
-
+           
             if (this.TrainType == TRAINTYPE.REMOTE || updateMSGReceived == true) //server tolds me this train (may include mine) needs to update position
             {
                 UpdateRemoteTrainPos(elapsedClockSeconds);
@@ -2280,6 +2283,19 @@ namespace Orts.Simulation.Physics
             // calculate projected speed
             if (elapsedClockSeconds < AccelerationMpSpS.SmoothPeriodS)
                 AccelerationMpSpS.Update(elapsedClockSeconds, (SpeedMpS - LastSpeedMpS) / elapsedClockSeconds);
+
+            //#######TOURMALINE#######################################################################################
+            if (ForcedSpeedMpS.HasValue && this == Simulator.PlayerLocomotive?.Train)
+            {
+                float target = ForcedSpeedMpS.Value;
+
+                SpeedMpS = MathHelper.Lerp(SpeedMpS, target, 0.18f);
+
+                foreach (TrainCar car in Cars)
+                    car.SpeedMpS = SpeedMpS;
+            }
+            //#######TOURMALINE#######################################################################################
+
             LastSpeedMpS = SpeedMpS;
             ProjectedSpeedMpS = SpeedMpS + 60 * AccelerationMpSpS.SmoothedValue;
             ProjectedSpeedMpS = SpeedMpS > float.Epsilon ?

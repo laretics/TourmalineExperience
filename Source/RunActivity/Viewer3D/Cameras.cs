@@ -784,18 +784,7 @@ namespace Orts.Viewer3D
         }
     }
 
-    public class TourmalineCamera : FreeRoamCamera
-    {
-        public TourmalineCamera(Viewer viewer, Camera previousCamera) : base(viewer, previousCamera)
-        {
-        }
-        public override void Update(ElapsedTime elapsedTime)
-        {            
-            //WorldLocation auxLoca = cameraLocation;
-            //SetLocation(new WorldLocation(-6119, 14303, new Vector3(-47, 10, 931)));
-            base.Update(elapsedTime);
-        }
-    }
+
 
     public abstract class AttachedCamera : RotatingCamera
     {
@@ -985,8 +974,6 @@ namespace Orts.Viewer3D
             UpdateListener();
         }
     }
-
-
 
     public class TrackingCamera : AttachedCamera
     {

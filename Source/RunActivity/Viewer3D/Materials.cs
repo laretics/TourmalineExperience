@@ -718,7 +718,7 @@ namespace Orts.Viewer3D
         readonly SceneryMaterialOptions Options;
         readonly float MipMapBias;
         protected Texture2D Texture;
-        private readonly string TexturePath;
+        public readonly string TexturePath;
         protected Texture2D NightTexture;
         byte AceAlphaBits;   // the number of bits in the ace file's alpha channel 
         IEnumerator<EffectPass> ShaderPassesDarkShade;
@@ -1403,4 +1403,6 @@ namespace Orts.Viewer3D
             }
         }
     }
+
+
 }

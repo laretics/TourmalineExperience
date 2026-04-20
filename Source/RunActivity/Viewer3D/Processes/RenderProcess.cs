@@ -82,8 +82,12 @@ namespace Orts.Viewer3D.Processes
             Game.Window.Title = "Open Rails";
             GraphicsDeviceManager = new GraphicsDeviceManager(game);
 
-            var windowSizeParts = Game.Settings.WindowSize.Split(new[] { 'x' }, 2);
-            GameWindowSize = new Point(Convert.ToInt32(windowSizeParts[0]), Convert.ToInt32(windowSizeParts[1]));
+            //#######TOURMALINE#######################################################################################
+            //var windowSizeParts = Game.Settings.WindowSize.Split(new[] { 'x' }, 2);
+            //GameWindowSize = new Point(Convert.ToInt32(windowSizeParts[0]), Convert.ToInt32(windowSizeParts[1]));
+            GameWindowSize = new Point(Viewer.STREAM_WIDTH, Viewer.STREAM_HEIGHT);
+
+            //#######TOURMALINE#######################################################################################
 
             FrameRate = new SmoothedData();
             FrameTime = new SmoothedDataWithPercentiles();

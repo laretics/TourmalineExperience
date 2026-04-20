@@ -1,4 +1,4 @@
-// COPYRIGHT 2009, 2010, 2011, 2012, 2013 by the Open Rails project.
+﻿// COPYRIGHT 2009, 2010, 2011, 2012, 2013 by the Open Rails project.
 // 
 // This file is part of Open Rails.
 // 
@@ -399,6 +399,7 @@ namespace Orts.Viewer3D
 
         public bool IsScreenChanged { get; internal set; }
         ShadowMapMaterial ShadowMapMaterial;
+        BasicMaterial BasicMaterial;
         SceneryShader SceneryShader;
         Vector3 SolarDirection;
         Camera Camera;
@@ -511,6 +512,8 @@ namespace Orts.Viewer3D
                 ShadowMapMaterial = (ShadowMapMaterial)viewer.MaterialManager.Load("ShadowMap");
             if (SceneryShader == null)
                 SceneryShader = viewer.MaterialManager.SceneryShader;
+
+            BasicMaterial = new BasicMaterial(viewer, "WireframeTemp");
         }
 
         public void SetCamera(Camera camera)
@@ -850,6 +853,9 @@ namespace Orts.Viewer3D
             }
         }
 
+
+        //#######TOURMALINE#######################################################################################
+
         void DrawSequences(GraphicsDevice graphicsDevice, bool logging)
         {
             if (Game.Settings.DynamicShadows && (RenderProcess.ShadowMapCount > 0) && SceneryShader != null)
@@ -857,14 +863,19 @@ namespace Orts.Viewer3D
 
             var renderItems = RenderItemsSequence;
             renderItems.Clear();
+
             for (var i = 0; i < (int)RenderPrimitiveSequence.Sentinel; i++)
             {
-                if (logging) Console.WriteLine("    {0} {{", (RenderPrimitiveSequence)i);
+                RenderPrimitiveSequence seq = (RenderPrimitiveSequence)i;                
+
+                if (logging) Console.WriteLine("    {0} {{", seq);
+
                 var sequence = RenderItems[i];
                 foreach (var sequenceMaterial in sequence)
                 {
                     if (sequenceMaterial.Value.Count == 0)
                         continue;
+
                     if (sequenceMaterial.Key == DummyBlendedMaterial)
                     {
                         // Blended: multiple materials, group by material as much as possible without destroying ordering.
@@ -882,8 +893,8 @@ namespace Orts.Viewer3D
                                 if (lastMaterial != null)
                                     lastMaterial.ResetState(graphicsDevice);
 #if DEBUG_RENDER_STATE
-                                if (lastMaterial != null)
-                                    DebugRenderState(graphicsDevice, lastMaterial.ToString());
+                        if (lastMaterial != null)
+                            DebugRenderState(graphicsDevice, lastMaterial.ToString());
 #endif
                                 renderItem.Material.SetState(graphicsDevice, lastMaterial);
                                 lastMaterial = renderItem.Material;
@@ -899,8 +910,8 @@ namespace Orts.Viewer3D
                         if (lastMaterial != null)
                             lastMaterial.ResetState(graphicsDevice);
 #if DEBUG_RENDER_STATE
-                        if (lastMaterial != null)
-                            DebugRenderState(graphicsDevice, lastMaterial.ToString());
+                if (lastMaterial != null)
+                    DebugRenderState(graphicsDevice, lastMaterial.ToString());
 #endif
                     }
                     else
@@ -914,16 +925,41 @@ namespace Orts.Viewer3D
                         sequenceMaterial.Key.Render(graphicsDevice, sequenceMaterial.Value, ref XNACameraView, ref XNACameraProjection);
                         sequenceMaterial.Key.ResetState(graphicsDevice);
 #if DEBUG_RENDER_STATE
-                        DebugRenderState(graphicsDevice, sequenceMaterial.Key.ToString());
+                DebugRenderState(graphicsDevice, sequenceMaterial.Key.ToString());
 #endif
                     }
                 }
+
                 if (logging) Console.WriteLine("    }");
             }
 
             if (Game.Settings.DynamicShadows && (RenderProcess.ShadowMapCount > 0) && SceneryShader != null)
                 SceneryShader.ClearShadowMap();
         }
+
+        private bool IsTrainMaterial(Material material)
+        {
+            if (material == null)
+                return false;
+
+            // Caso más fiable: SceneryMaterial con ruta que contiene "\trainset\"
+            if (material is SceneryMaterial sceneryMat)
+            {
+                return !string.IsNullOrEmpty(sceneryMat.TexturePath) &&
+                       sceneryMat.TexturePath.Contains(@"\trainset\");
+            }
+
+            //// Otros posibles materiales de trenes (por si acaso)
+            //string matName = material.ToString().ToLowerInvariant();
+            //return matName.Contains("train") ||
+            //       matName.Contains("locomotive") ||
+            //       matName.Contains("wagon") ||
+            //       matName.Contains("car");
+            return false;
+        }
+
+        //#######TOURMALINE#######################################################################################
+
 
         void DrawSequencesDistantMountains(GraphicsDevice graphicsDevice, bool logging)
         {
