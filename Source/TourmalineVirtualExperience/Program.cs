@@ -1,13 +1,17 @@
 ﻿using Microsoft.AspNetCore.Mvc;
 using TourmalineVirtualExperience;
+using TourmalineVirtualExperience.Video;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
-builder.Services.AddHostedService<MediaMTXManager>();
 builder.Services.AddSingleton<TourmalineVirtualService>();
+builder.Services.AddSingleton<VideoSegmentGenerator>();
 
 var app = builder.Build();
+
+VideoSegmentGenerator auxVideoSegmentGenerator = app.Services.GetRequiredService<VideoSegmentGenerator>();
+auxVideoSegmentGenerator.Start();    
 
 if (app.Environment.IsDevelopment())
 {
@@ -49,5 +53,14 @@ app.MapPost("/command", async ([FromBody] TourmalineCommand command, TourmalineV
     return Results.Ok(result);
 })
 .WithName("SendCommand");
+
+app.MapGet("/video/segment/{id:int}", (int id, VideoSegmentGenerator generator) =>
+{
+    var data = generator.GetSegment(id);
+    if (data == null || data.Length == 0)
+        return Results.NotFound($"Segmento {id} no encontrado");
+
+    return Results.File(data, "video/mp2t", $"segment_{id}.ts");
+});
 
 app.Run();
