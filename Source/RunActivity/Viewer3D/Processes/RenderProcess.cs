@@ -79,13 +79,15 @@ namespace Orts.Viewer3D.Processes
             Profiler.SetThread();
             Game.SetThreadLanguage();
 
-            Game.Window.Title = "Open Rails";
+            Game.Window.Title = "Tourmaline Experience";
             GraphicsDeviceManager = new GraphicsDeviceManager(game);
 
             //#######TOURMALINE#######################################################################################
             //var windowSizeParts = Game.Settings.WindowSize.Split(new[] { 'x' }, 2);
             //GameWindowSize = new Point(Convert.ToInt32(windowSizeParts[0]), Convert.ToInt32(windowSizeParts[1]));
-            GameWindowSize = new Point(Viewer.STREAM_WIDTH, Viewer.STREAM_HEIGHT);
+            Game.Settings.FullScreen = false;
+            GraphicsDeviceManager.IsFullScreen = false;
+            GameWindowSize = new Point(Viewer.STREAM_WIDTH, Viewer.STREAM_HEIGHT);            
 
             //#######TOURMALINE#######################################################################################
 

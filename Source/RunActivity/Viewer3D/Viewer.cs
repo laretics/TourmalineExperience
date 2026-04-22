@@ -222,9 +222,9 @@ namespace Orts.Viewer3D
         private bool mvarEnableStreaming = true;
         private Process mvarFFmpegProcess;
 
-        public const int STREAM_WIDTH = 640;
+        public const int STREAM_WIDTH = 480;
         public const int STREAM_HEIGHT = 480;      // Cambia a 520 si prefieres tu prueba actual
-        private const int STREAM_FPS = 25;
+        private const int STREAM_FPS = 20;
 
         private byte[] mvarFrameBuffer;
         private System.Collections.Concurrent.ConcurrentQueue<byte[]> mcolFrameQueue
@@ -233,7 +233,6 @@ namespace Orts.Viewer3D
         private Thread mvarEncodingThread;
         private bool mvarEncodingRunning = false;
 
-        private readonly string mvarFFmpegPath = @".\content\ffmpeg.exe";
         private readonly string mvarRTSPUrl = "rtsp://127.0.0.1:8554/openrails";
         //#######TOURMALINE#######################################################################################
 
@@ -1988,7 +1987,7 @@ namespace Orts.Viewer3D
         }
 
         //#######TOURMALINE#######################################################################################
-        private void StartFFmpegProcess()
+        private void StartFFmpegProcessRtsp()
         {
             if (mvarFFmpegProcess != null && !mvarFFmpegProcess.HasExited)
                 return;
@@ -2009,9 +2008,11 @@ namespace Orts.Viewer3D
                     "-delay 0 " +                      // Mínima latencia posible
                     $"-f rtsp -rtsp_transport tcp \"{mvarRTSPUrl}\"";
 
+                string auxFfmpegPath = GetFFmpegPath();
+
                 ProcessStartInfo startInfo = new ProcessStartInfo
                 {
-                    FileName = mvarFFmpegPath,
+                    FileName = auxFfmpegPath,
                     Arguments = arguments,
                     RedirectStandardInput = true,
                     RedirectStandardError = true,
@@ -2037,6 +2038,132 @@ namespace Orts.Viewer3D
             {
                 Console.WriteLine($"[Tourmaline] Error al iniciar FFmpeg: {ex.Message}");
                 mvarEnableStreaming = false;
+            }
+        }
+        private void StartFFmpegProcessHls()
+        {
+            if (mvarFFmpegProcess != null && !mvarFFmpegProcess.HasExited)
+                return;
+
+            try
+            {
+                string arguments = $"-f rawvideo -pix_fmt bgra -s {STREAM_WIDTH}x{STREAM_HEIGHT} -r {STREAM_FPS} -i - " +
+                    "-c:v h264_nvenc " +
+                    "-preset ll " +
+                    "-tune ll " +
+                    "-b:v 1800k " +
+                    "-maxrate 2500k " +
+                    "-bufsize 5000k " +
+                    "-pix_fmt yuv420p " +
+                    "-g 30 " +
+                    "-bf 0 " +
+                    "-delay 0 " +
+
+                    // === CAMBIO IMPORTANTE: HLS en vez de RTSP ===
+                    $"-f hls " +
+                    "-hls_time 1 " +                    // duración de cada segmento (1 segundo)
+                    "-hls_list_size 8 " +               // número de segmentos en la lista
+                    "-hls_flags delete_segments+append_list " +
+                    "-hls_segment_filename \"segment_%03d.ts\" " +
+                    "\"{mvarHLSUrl}/index.m3u8\"";      // ← Ruta donde MediaMTX espera el HLS
+
+                string auxFfmpegPath = GetFFmpegPath();
+
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = auxFfmpegPath,
+                    Arguments = arguments,
+                    RedirectStandardInput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                mvarFFmpegProcess = Process.Start(startInfo);
+
+                mvarFFmpegProcess.ErrorDataReceived += (sender, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                        Console.WriteLine("[FFmpeg] " + e.Data);
+                };
+
+                mvarFFmpegProcess.BeginErrorReadLine();
+
+                Console.WriteLine($"[Tourmaline] HLS iniciado → http://127.0.0.1:8888/openrails/index.m3u8");
+                Console.WriteLine($"[Tourmaline] Resolución: {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS} fps");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tourmaline] Error al iniciar FFmpeg: {ex.Message}");
+                mvarEnableStreaming = false;
+            }
+        }
+        
+        private void StartFFmpegProcess()
+        {
+            if (mvarFFmpegProcess != null && !mvarFFmpegProcess.HasExited)
+                return;
+
+            try
+            {
+                string arguments = $"-f rawvideo -pix_fmt bgra -s {STREAM_WIDTH}x{STREAM_HEIGHT} -r {STREAM_FPS} -i - " +
+    "-c:v libx264 " +                    // ← Cambiamos a software
+    "-preset ultrafast " +               // El más rápido posible
+    "-tune zerolatency " +               // Baja latencia
+    "-b:v 800k " +                       // Bitrate muy bajo
+    "-maxrate 1200k " +
+    "-bufsize 2400k " +
+    "-pix_fmt yuv420p " +
+    "-g 60 " +
+    "-f rtsp -rtsp_transport tcp \"rtsp://127.0.0.1:8554/openrails\"";
+
+                string auxFfmpegPath = GetFFmpegPath();
+
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    FileName = auxFfmpegPath,
+                    Arguments = arguments,
+                    RedirectStandardInput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+
+                mvarFFmpegProcess = Process.Start(startInfo);
+
+                mvarFFmpegProcess.ErrorDataReceived += (sender, e) =>
+                {
+                    if (!string.IsNullOrEmpty(e.Data))
+                        Console.WriteLine("[FFmpeg Error] " + e.Data);
+                };
+
+                mvarFFmpegProcess.BeginErrorReadLine();
+
+                Console.WriteLine("[Tourmaline] FFmpeg iniciado con configuración mínima para diagnóstico");
+                Console.WriteLine("[Tourmaline] Intentando enviar a rtsp://127.0.0.1:8554/openrails");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Tourmaline] Error al iniciar FFmpeg: {ex.Message}");
+                mvarEnableStreaming = false;
+            }
+            //StartFFmpegProcessRtsp();
+        }
+        private string GetFFmpegPath()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string possiblePath = Path.Combine(baseDir, "content", "ffmpeg.exe");
+
+            if (File.Exists(possiblePath))
+            {
+                Console.WriteLine($"[Tourmaline] FFmpeg encontrado en: {possiblePath}");
+                return possiblePath;                
+            }
+            else
+            {
+                // Fallback por si no lo encuentra
+                Console.WriteLine($"[Tourmaline] ADVERTENCIA: No se encontró ffmpeg.exe en {possiblePath}");
+                return @"C:\TourmalineSimulator\content\ffmpeg.exe"; // ruta absoluta como respaldo
             }
         }
         private void EncodingThreadWorker()
