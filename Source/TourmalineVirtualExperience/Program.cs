@@ -1,17 +1,31 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Reflection.Metadata.Ecma335;
+using Microsoft.AspNetCore.Mvc;
 using TourmalineVirtualExperience;
 using TourmalineVirtualExperience.Video;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
+
+//Servicios principales.
 builder.Services.AddSingleton<TourmalineVirtualService>();
 builder.Services.AddSingleton<VideoSegmentGenerator>();
+builder.Services.AddSingleton<SimulatorFrameReceiver>();
+
+//Servicio de background que inicia la generación.
+builder.Services.AddHostedService<VideoGenerationService>();
 
 var app = builder.Build();
 
-VideoSegmentGenerator auxVideoSegmentGenerator = app.Services.GetRequiredService<VideoSegmentGenerator>();
-auxVideoSegmentGenerator.Start();    
+SimulatorFrameReceiver auxSimulatorFrameReceiver = app.Services.GetRequiredService<SimulatorFrameReceiver>();
+auxSimulatorFrameReceiver.Start();
+//Conectamos este receptor con el generador de segmentos...
+auxSimulatorFrameReceiver.FrameReceived += (frameData, width, height) =>
+{
+    //Pasando el frame al generador de segmentos.
+    VideoSegmentGenerator auxGenerator = app.Services.GetRequiredService<VideoSegmentGenerator>();
+    auxGenerator.EnqueueFrame(frameData, width, height);
+};
 
 if (app.Environment.IsDevelopment())
 {
@@ -26,7 +40,9 @@ if (app.Environment.IsDevelopment())
 }
 
 // Endpoints
-app.MapPost("/launch", async ([FromBody] LaunchRequest request, TourmalineVirtualService service) =>
+app.MapPost("/launch", async ([FromBody] LaunchRequest request, 
+        TourmalineVirtualService service, 
+        VideoSegmentGenerator auxGenerator) =>
 {
     var result = await service.LaunchOpenRailsAsync(request);
     return Results.Ok(result);
@@ -54,13 +70,27 @@ app.MapPost("/command", async ([FromBody] TourmalineCommand command, TourmalineV
 })
 .WithName("SendCommand");
 
-app.MapGet("/video/segment/{id:int}", (int id, VideoSegmentGenerator generator) =>
-{
-    var data = generator.GetSegment(id);
-    if (data == null || data.Length == 0)
-        return Results.NotFound($"Segmento {id} no encontrado");
+app.MapGet("/video/segment/{id:int}", (int id, VideoSegmentGenerator auxGenerator) =>
+{    
+    Console.WriteLine($"[Endpoint] Solicitado segmento {id}. Total en memoria: {auxGenerator.GetSegmentCount()}");
+    var data = auxGenerator.GetSegment(id);
 
-    return Results.File(data, "video/mp2t", $"segment_{id}.ts");
+    if (data == null || data.Length == 0)
+    {
+        return Results.NotFound($"Segmento {id} no encontrado. Total segmentos en memoria: {auxGenerator.GetSegmentCount()}");
+    }
+
+    Console.WriteLine($"[Endpoint] Sirviendo segmento {id} ({data.Length / 1024} KB)");
+    return Results.File(data, contentType: "video/mp2t", fileDownloadName: $"segment_{id}.ts");
+});
+
+app.MapGet("/video/status", (VideoSegmentGenerator auxGenerator) =>
+{
+    return Results.Json(new
+    {
+        TotalSegments = auxGenerator.GetSegmentCount(),
+        NextSegmentId = auxGenerator.GetNextSegmentId()
+    });
 });
 
 app.Run();

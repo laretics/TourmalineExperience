@@ -24,6 +24,7 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using GNU.Gettext;
 using Microsoft.CodeAnalysis;
@@ -217,13 +218,14 @@ namespace Orts.Viewer3D
         //#######TOURMALINE#######################################################################################
         // Control desde API-REST
         private TourmalineCommandSystem mvarTourmalineCommandSystem; //Elemento para interactuar con el server API-REST
+        private TourmalineFrameSender mvarTourmalineFrameSender; //Elemento para enviar frames a Tourmaline
 
         // Características del streaming
         private bool mvarEnableStreaming = true;
         private Process mvarFFmpegProcess;
 
-        public const int STREAM_WIDTH = 480;
-        public const int STREAM_HEIGHT = 480;      // Cambia a 520 si prefieres tu prueba actual
+        public const int STREAM_WIDTH = 800;
+        public const int STREAM_HEIGHT = 600;      // Cambia a 520 si prefieres tu prueba actual
         private const int STREAM_FPS = 20;
 
         private byte[] mvarFrameBuffer;
@@ -412,6 +414,7 @@ namespace Orts.Viewer3D
             }
             //#######TOURMALINE#######################################################################################
             mvarTourmalineCommandSystem = new TourmalineCommandSystem(this);
+            mvarTourmalineFrameSender = new TourmalineFrameSender();
             //#######TOURMALINE#######################################################################################
             Initialize();
         }
@@ -506,7 +509,7 @@ namespace Orts.Viewer3D
         /// processes haven't started yet.
         /// </summary>
         [CallOnThread("Loader")]
-        internal void Initialize()
+        internal async Task Initialize()
         {
             GraphicsDevice = RenderProcess.GraphicsDevice;
 
@@ -628,19 +631,6 @@ namespace Orts.Viewer3D
             SetCommandReceivers();
             InitReplay();
             //#######TOURMALINE#######################################################################################
-            if (mvarEnableStreaming)
-            {
-                mvarFrameBuffer = new byte[STREAM_WIDTH * STREAM_HEIGHT * 4];
-
-                StartFFmpegProcess();
-
-                mvarEncodingRunning = true;
-                mvarEncodingThread = new Thread(EncodingThreadWorker) { IsBackground = true };
-                mvarEncodingThread.Start();
-
-                Console.WriteLine("[Tourmaline] Streaming activado (640x480 @ 25fps)");
-
-            }
             mvarTourmalineCommandSystem.Start();
             Console.WriteLine("[Tourmaline] Recepción de comandos desde API-REST activada.");
             //#######TOURMALINE#######################################################################################
@@ -1954,248 +1944,42 @@ namespace Orts.Viewer3D
                 MessagesWindow.AddMessage(Catalog.GetString("Game saved"), 5);
             }
             //#######TOURMALINE#######################################################################################
-            if (mvarEnableStreaming && null != mvarFFmpegProcess && !mvarFFmpegProcess.HasExited)
+            if (mvarEnableStreaming && null!=mvarTourmalineFrameSender)
             {
                 try
                 {
-                    // Tamaño exacto del backbuffer actual
                     int bufferSize = DisplaySize.X * DisplaySize.Y * 4;
-
-                    if (mvarFrameBuffer == null || mvarFrameBuffer.Length != bufferSize)
+                    if (null == mvarFrameBuffer || mvarFrameBuffer.Length != bufferSize)
                         mvarFrameBuffer = new byte[bufferSize];
 
-                    // Leer directamente el backbuffer
                     GraphicsDevice.GetBackBufferData(mvarFrameBuffer);
 
-                    // Corrección de colores: RGBA → BGRA (necesario para FFmpeg rawvideo)
+                    //Conversión de BGRA a RGBA
                     for (int i = 0; i < bufferSize; i += 4)
                     {
-                        byte temp = mvarFrameBuffer[i];        // R
-                        mvarFrameBuffer[i] = mvarFrameBuffer[i + 2];  // B → posición R
-                        mvarFrameBuffer[i + 2] = temp;                    // R → posición B
+                        byte temp = mvarFrameBuffer[i]; // Blue
+                        mvarFrameBuffer[i] = mvarFrameBuffer[i + 2]; // Red
+                        mvarFrameBuffer[i + 2] = temp; // Blue
                     }
 
-                    // Enviar al buffer intermedio (que controla la tasa de FPS)
-                    EnqueueFrame(mvarFrameBuffer);
+                    byte[] frameDataCopy = (byte[])mvarFrameBuffer.Clone(); //Pasamos una copia para evitar problemas.
+                    _ = Task.Run(async () =>
+                    {
+                        await mvarTourmalineFrameSender.SendFrameAsync(frameDataCopy, DisplaySize.X, DisplaySize.Y);
+
+                    });
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Tourmaline Streaming] Error preparando frame: {ex.Message}");
+                    Console.WriteLine($"[Tourmaline] Error enviando frame: {ex.Message}");
                 }
             }
             //#######TOURMALINE#######################################################################################
         }
 
         //#######TOURMALINE#######################################################################################
-        private void StartFFmpegProcessRtsp()
-        {
-            if (mvarFFmpegProcess != null && !mvarFFmpegProcess.HasExited)
-                return;
 
-            try
-            {
-                string arguments =
-                    $"-f rawvideo -pix_fmt bgra -s {STREAM_WIDTH}x{STREAM_HEIGHT} -r {STREAM_FPS} -i - " +
-                    "-c:v h264_nvenc " +
-                    "-preset ll " +                    // Low Latency
-                    "-tune ll " +
-                    "-b:v 1800k " +                    // Bitrate base equilibrado
-                    "-maxrate 2500k " +                // Máximo pico permitido
-                    "-bufsize 5000k " +                // Buffer suave
-                    "-pix_fmt yuv420p " +
-                    "-g 30 " +                         // Keyframe cada ~1.2 segundos
-                    "-bf 0 " +                         // Sin B-frames (reduce latencia)
-                    "-delay 0 " +                      // Mínima latencia posible
-                    $"-f rtsp -rtsp_transport tcp \"{mvarRTSPUrl}\"";
 
-                string auxFfmpegPath = GetFFmpegPath();
-
-                ProcessStartInfo startInfo = new ProcessStartInfo
-                {
-                    FileName = auxFfmpegPath,
-                    Arguments = arguments,
-                    RedirectStandardInput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                mvarFFmpegProcess = Process.Start(startInfo);
-
-                // Mostrar errores de FFmpeg en consola
-                mvarFFmpegProcess.ErrorDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                        Console.WriteLine("[FFmpeg] " + e.Data);
-                };
-                mvarFFmpegProcess.BeginErrorReadLine();
-
-                Console.WriteLine($"[Tourmaline] RTSP iniciado → {mvarRTSPUrl}");
-                Console.WriteLine($"[Tourmaline] Resolución: {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS} fps");
-                Console.WriteLine("[Tourmaline] Abre en navegador: http://127.0.0.1:8889/openrails");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Tourmaline] Error al iniciar FFmpeg: {ex.Message}");
-                mvarEnableStreaming = false;
-            }
-        }
-        private void StartFFmpegProcessHls()
-        {
-            if (mvarFFmpegProcess != null && !mvarFFmpegProcess.HasExited)
-                return;
-
-            try
-            {
-                string arguments = $"-f rawvideo -pix_fmt bgra -s {STREAM_WIDTH}x{STREAM_HEIGHT} -r {STREAM_FPS} -i - " +
-                    "-c:v h264_nvenc " +
-                    "-preset ll " +
-                    "-tune ll " +
-                    "-b:v 1800k " +
-                    "-maxrate 2500k " +
-                    "-bufsize 5000k " +
-                    "-pix_fmt yuv420p " +
-                    "-g 30 " +
-                    "-bf 0 " +
-                    "-delay 0 " +
-
-                    // === CAMBIO IMPORTANTE: HLS en vez de RTSP ===
-                    $"-f hls " +
-                    "-hls_time 1 " +                    // duración de cada segmento (1 segundo)
-                    "-hls_list_size 8 " +               // número de segmentos en la lista
-                    "-hls_flags delete_segments+append_list " +
-                    "-hls_segment_filename \"segment_%03d.ts\" " +
-                    "\"{mvarHLSUrl}/index.m3u8\"";      // ← Ruta donde MediaMTX espera el HLS
-
-                string auxFfmpegPath = GetFFmpegPath();
-
-                ProcessStartInfo startInfo = new ProcessStartInfo
-                {
-                    FileName = auxFfmpegPath,
-                    Arguments = arguments,
-                    RedirectStandardInput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                mvarFFmpegProcess = Process.Start(startInfo);
-
-                mvarFFmpegProcess.ErrorDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                        Console.WriteLine("[FFmpeg] " + e.Data);
-                };
-
-                mvarFFmpegProcess.BeginErrorReadLine();
-
-                Console.WriteLine($"[Tourmaline] HLS iniciado → http://127.0.0.1:8888/openrails/index.m3u8");
-                Console.WriteLine($"[Tourmaline] Resolución: {STREAM_WIDTH}x{STREAM_HEIGHT} @ {STREAM_FPS} fps");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Tourmaline] Error al iniciar FFmpeg: {ex.Message}");
-                mvarEnableStreaming = false;
-            }
-        }
-        
-        private void StartFFmpegProcess()
-        {
-            if (mvarFFmpegProcess != null && !mvarFFmpegProcess.HasExited)
-                return;
-
-            try
-            {
-                string arguments = $"-f rawvideo -pix_fmt bgra -s {STREAM_WIDTH}x{STREAM_HEIGHT} -r {STREAM_FPS} -i - " +
-    "-c:v libx264 " +                    // ← Cambiamos a software
-    "-preset ultrafast " +               // El más rápido posible
-    "-tune zerolatency " +               // Baja latencia
-    "-b:v 800k " +                       // Bitrate muy bajo
-    "-maxrate 1200k " +
-    "-bufsize 2400k " +
-    "-pix_fmt yuv420p " +
-    "-g 60 " +
-    "-f rtsp -rtsp_transport tcp \"rtsp://127.0.0.1:8554/openrails\"";
-
-                string auxFfmpegPath = GetFFmpegPath();
-
-                ProcessStartInfo startInfo = new ProcessStartInfo
-                {
-                    FileName = auxFfmpegPath,
-                    Arguments = arguments,
-                    RedirectStandardInput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                mvarFFmpegProcess = Process.Start(startInfo);
-
-                mvarFFmpegProcess.ErrorDataReceived += (sender, e) =>
-                {
-                    if (!string.IsNullOrEmpty(e.Data))
-                        Console.WriteLine("[FFmpeg Error] " + e.Data);
-                };
-
-                mvarFFmpegProcess.BeginErrorReadLine();
-
-                Console.WriteLine("[Tourmaline] FFmpeg iniciado con configuración mínima para diagnóstico");
-                Console.WriteLine("[Tourmaline] Intentando enviar a rtsp://127.0.0.1:8554/openrails");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[Tourmaline] Error al iniciar FFmpeg: {ex.Message}");
-                mvarEnableStreaming = false;
-            }
-            //StartFFmpegProcessRtsp();
-        }
-        private string GetFFmpegPath()
-        {
-            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            string possiblePath = Path.Combine(baseDir, "content", "ffmpeg.exe");
-
-            if (File.Exists(possiblePath))
-            {
-                Console.WriteLine($"[Tourmaline] FFmpeg encontrado en: {possiblePath}");
-                return possiblePath;                
-            }
-            else
-            {
-                // Fallback por si no lo encuentra
-                Console.WriteLine($"[Tourmaline] ADVERTENCIA: No se encontró ffmpeg.exe en {possiblePath}");
-                return @"C:\TourmalineSimulator\content\ffmpeg.exe"; // ruta absoluta como respaldo
-            }
-        }
-        private void EncodingThreadWorker()
-        {
-            while (mvarEncodingRunning && null != mvarFFmpegProcess && null != mvarFFmpegProcess.HasExited)
-            {
-                if(mcolFrameQueue.TryDequeue(out byte[] auxFrame))
-                {
-                    try
-                    {
-                        mvarFFmpegProcess.StandardInput.BaseStream.Write(auxFrame, 0, auxFrame.Length);
-                        mvarFFmpegProcess.StandardInput.Flush();
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Write($"[Encoding Thread] Error al escribir: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    Thread.Sleep(1); //Paramos un poco el proceso para no malgastar CPU.
-                }
-            }
-        }
-        private void EnqueueFrame(byte[] frameData)
-        {
-            //Descartamos fotogramas en la cola parfa evitar acumulación de lag.
-            while (mcolFrameQueue.Count > 4)
-                mcolFrameQueue.TryDequeue(out _);
-
-            mcolFrameQueue.Enqueue((byte[])frameData.Clone()); //No pasamos referencia sino copia.
-        }
         //#######TOURMALINE#######################################################################################
 
 
