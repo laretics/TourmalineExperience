@@ -197,8 +197,6 @@ namespace Orts.Viewer3D
     public class TourmalineFrameCommand
     {
         public byte[] FrameData { get; set; } = Array.Empty<byte>();
-        public int Width { get; set; }
-        public int Height { get; set; } 
     }
 
     // Clase auxiliar para los comandos

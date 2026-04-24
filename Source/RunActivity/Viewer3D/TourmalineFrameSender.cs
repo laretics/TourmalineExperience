@@ -12,7 +12,7 @@ namespace Orts.Viewer3D
     {
         private readonly string mvarPipeName = "TourmalineFramePipe";
 
-        public async Task SendFrameAsync(byte[] frameData , int width, int height)
+        public async Task SendFrameAsync(byte[] frameData)
         {
             try
             {
@@ -21,8 +21,6 @@ namespace Orts.Viewer3D
                     await pipeClient.ConnectAsync(3000);
                     using (BinaryWriter writer = new BinaryWriter(pipeClient))
                     {
-                        writer.Write(width);
-                        writer.Write(height);
                         writer.Write(frameData.Length);
                         writer.Write(frameData);
                         await pipeClient.FlushAsync();

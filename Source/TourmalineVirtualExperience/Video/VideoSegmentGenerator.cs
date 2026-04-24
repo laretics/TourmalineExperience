@@ -25,8 +25,14 @@ namespace TourmalineVirtualExperience.Video
 
         private readonly string mvarffMpegPath;
 
-        public VideoSegmentGenerator()
+        // Array para permitir escalar fácilmente a 3 o más instancias
+        private readonly FFmpegInstance?[] mcolInstances;
+        private int mvarActiveInstanceIndex = 0;
+
+        public VideoSegmentGenerator(int maxInstances = 2)
         {
+            mcolInstances = new FFmpegInstance?[maxInstances];
+
             mvarffMpegPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tools", "ffmpeg.exe");
             if (!File.Exists(mvarffMpegPath))
                 throw new FileNotFoundException($"No se encontró ffmpeg.exe en: {mvarffMpegPath}");
@@ -34,11 +40,10 @@ namespace TourmalineVirtualExperience.Video
             Console.WriteLine($"[VideoSegmentGenerator] FFmpeg encontrado en: {mvarffMpegPath}");
         }
 
-        public void EnqueueFrame(byte[] frameData, int width, int height)
+        public void EnqueueFrame(byte[] frameData)
         {
             if (frameData == null || frameData.Length == 0) return;
             mvarCurrentFrameBuffer = (byte[])frameData.Clone();
-            Console.WriteLine($"[VideoSegmentGenerator] Frame real encolado correctamente ({width}x{height})");
         }
 
         public void EnsureStarted()
@@ -46,7 +51,7 @@ namespace TourmalineVirtualExperience.Video
             if (mvarIsRunning) return;
             mvarIsRunning = true;
             Task.Run(async () => await GenerationLoop());
-            Console.WriteLine("[VideoSegmentGenerator] Generación iniciada bajo demanda");
+            Console.WriteLine("[VideoSegmentGenerator] Generación con múltiples instancias iniciada");
         }
 
         private async Task GenerationLoop()
@@ -55,8 +60,9 @@ namespace TourmalineVirtualExperience.Video
             {
                 try
                 {
-                    float segmentDuration = 5.0f; // Temporal
-                    byte[] segmentData = await GenerateTsSegmentAsync(segmentDuration);
+                    float segmentDuration = 5.0f; // ← Luego variable según aceleración
+
+                    byte[] segmentData = await GenerateWithCurrentInstanceAsync(segmentDuration);
 
                     int segmentId = mvarNextSegmentId++;
                     mcolSegmentsInMemory[segmentId] = segmentData;
@@ -64,84 +70,37 @@ namespace TourmalineVirtualExperience.Video
                     Console.WriteLine($"[VideoSegment] Segmento {segmentId} generado - {segmentData.Length / 1024} KB");
 
                     CleanOldSegments(8);
-                    await Task.Delay((int)(segmentDuration * 1000) - 500);
+                    await Task.Delay((int)(segmentDuration * 1000) - 800);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[VideoSegment] Error: {ex.Message}");
+                    Console.WriteLine($"[VideoSegment] Error generando segmento: {ex.Message}");
                     await Task.Delay(1000);
                 }
+
+                // Rotamos a la siguiente instancia
+                mvarActiveInstanceIndex = (mvarActiveInstanceIndex + 1) % mcolInstances.Length;
             }
         }
 
-        private async Task<byte[]> GenerateTsSegmentAsync(float durationSeconds)
+        private async Task<byte[]> GenerateWithCurrentInstanceAsync(float durationSeconds)
         {
-            Console.WriteLine($"[VideoSegment] === GENERANDO SEGMENTO de {durationSeconds:F1} segundos ===");
+            int index = mvarActiveInstanceIndex;
 
-            string tempRawPath = Path.Combine(Path.GetTempPath(), $"tourmaline_{DateTime.Now.Ticks}.raw");
+            if (null==mcolInstances[index])
+                mcolInstances[index] = new FFmpegInstance(mvarffMpegPath);
 
-            try
-            {
-                byte[] frameToSend = mvarCurrentFrameBuffer ?? CreateDummyFrame();
-                await File.WriteAllBytesAsync(tempRawPath, frameToSend);
-
-                string arguments = $"-f rawvideo -pix_fmt bgra -s {TARGET_WIDTH}x{TARGET_HEIGHT} -r {TARGET_FPS} -i \"{tempRawPath}\" " +
-                                   $"-t {durationSeconds} " +
-                                   $"-c:v libx264 -preset medium -crf 23 " +   // mejor calidad
-                                   $"-b:v 2000k -maxrate 3000k -bufsize 6000k " +
-                                   $"-pix_fmt yuv420p -g 30 " +
-                                   $"-f mpegts pipe:1";
-
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = mvarffMpegPath,
-                    Arguments = arguments,
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using var process = Process.Start(startInfo);
-                if (process == null)
-                    throw new Exception("No se pudo iniciar FFmpeg");
-
-                byte[] segmentData = await ReadStreamToEndAsync(process.StandardOutput.BaseStream);
-
-                await process.WaitForExitAsync(new CancellationTokenSource(15000).Token);
-
-                Console.WriteLine($"[VideoSegment] === SEGMENTO GENERADO === Tamaño: {segmentData.Length / 1024} KB");
-
-                return segmentData;
-            }
-            finally
-            {
-                try { File.Delete(tempRawPath); } catch { }
-            }
-        }
-
-        private byte[] CreateDummyFrame()
-        {
-            int size = TARGET_WIDTH * TARGET_HEIGHT * 4;
-            byte[] dummy = new byte[size];
-            for (int i = 0; i < dummy.Length; i += 4)
-            {
-                dummy[i + 2] = 255;
-                dummy[i + 3] = 255;
-            }
-            return dummy;
-        }
-
-        private static async Task<byte[]> ReadStreamToEndAsync(Stream stream)
-        {
-            using var ms = new MemoryStream();
-            await stream.CopyToAsync(ms);
-            return ms.ToArray();
+            return await mcolInstances[index]!.GenerateSegmentAsync(mvarCurrentFrameBuffer, durationSeconds);
         }
 
         private void CleanOldSegments(int keepLast)
         {
-            var keys = mcolSegmentsInMemory.Keys.OrderByDescending(k => k).Skip(keepLast).ToList();
-            foreach (var key in keys)
+            var keysToRemove = mcolSegmentsInMemory.Keys
+                .OrderByDescending(k => k)
+                .Skip(keepLast)
+                .ToList();
+
+            foreach (var key in keysToRemove)
                 mcolSegmentsInMemory.TryRemove(key, out _);
         }
 
@@ -152,12 +111,13 @@ namespace TourmalineVirtualExperience.Video
         }
 
         public int GetSegmentCount() => mcolSegmentsInMemory.Count;
-
-        public int GetNextSegmentId() => mvarNextSegmentId;
+        public int GetNextSegmentId() => mvarNextSegmentId; 
 
         public void Dispose()
         {
             mvarIsRunning = false;
+            foreach (var instance in mcolInstances)
+                instance?.Dispose();
             mcolSegmentsInMemory.Clear();
         }
     }

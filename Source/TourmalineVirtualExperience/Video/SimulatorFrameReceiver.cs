@@ -10,7 +10,7 @@ namespace TourmalineVirtualExperience.Video
         private bool mvarIsRunning = false;
         private Task? mvarListenerTask;
 
-        public event Action<byte[], int, int>? FrameReceived; //FrameData, Width, Height.
+        public event Action<byte[]>? FrameReceived; //FrameData, Width, Height.
         public void Start()
         {
             if(mvarIsRunning) return; //Servidor ya en marcha.
@@ -37,8 +37,6 @@ namespace TourmalineVirtualExperience.Video
                     {
                         try
                         {
-                            int width = reader.ReadInt32();
-                            int height = reader.ReadInt32();
                             int dataLength = reader.ReadInt32();
 
                             if (dataLength <= 0 || dataLength > 10_000_000)
@@ -46,7 +44,7 @@ namespace TourmalineVirtualExperience.Video
 
                             byte[] frameData = reader.ReadBytes(dataLength);
 
-                            FrameReceived?.Invoke(frameData, width, height);
+                            FrameReceived?.Invoke(frameData);
                         }
                         catch (EndOfStreamException)
                         {

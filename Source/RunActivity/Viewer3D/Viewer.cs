@@ -1965,7 +1965,7 @@ namespace Orts.Viewer3D
                     byte[] frameDataCopy = (byte[])mvarFrameBuffer.Clone(); //Pasamos una copia para evitar problemas.
                     _ = Task.Run(async () =>
                     {
-                        await mvarTourmalineFrameSender.SendFrameAsync(frameDataCopy, DisplaySize.X, DisplaySize.Y);
+                        await mvarTourmalineFrameSender.SendFrameAsync(frameDataCopy);
 
                     });
                 }
