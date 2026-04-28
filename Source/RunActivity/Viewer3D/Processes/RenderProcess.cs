@@ -21,7 +21,9 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Orts.Processes;
 using ORTS.Common;
+using SharpFont;
 using System;
+using System.Configuration;
 using System.Diagnostics;
 using System.Windows.Forms;
 using static ORTS.Settings.UserSettings;
@@ -87,8 +89,11 @@ namespace Orts.Viewer3D.Processes
             //GameWindowSize = new Point(Convert.ToInt32(windowSizeParts[0]), Convert.ToInt32(windowSizeParts[1]));
             Game.Settings.FullScreen = false;
             GraphicsDeviceManager.IsFullScreen = false;
-            GameWindowSize = new Point(Viewer.STREAM_WIDTH, Viewer.STREAM_HEIGHT);            
-
+            int auxX = 320;
+            int auxY = 200;
+            int.TryParse(ConfigurationManager.AppSettings["StreamWidth"], out auxX);
+            int.TryParse(ConfigurationManager.AppSettings["StreamHeight"], out auxY);            
+            GameWindowSize = new Point(auxX,auxY);            
             //#######TOURMALINE#######################################################################################
 
             FrameRate = new SmoothedData();

@@ -19,6 +19,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -224,11 +225,7 @@ namespace Orts.Viewer3D
 
         // Características del streaming
         private bool mvarEnableStreaming = true;
-
-        public const int STREAM_WIDTH = 800;
-        public const int STREAM_HEIGHT = 600;
-        public const int STREAM_FPS = 20;
-        public const byte COMPRESSION_QUALITY = 75;
+        private byte mvarTourmalineCompressionQuality = 75;
 
         private byte[] mvarFrameBuffer;
         //#######TOURMALINE#######################################################################################
@@ -409,9 +406,11 @@ namespace Orts.Viewer3D
             }
             //#######TOURMALINE#######################################################################################
             mvarTourmalineCommandSystem = new TourmalineCommandSystem(this);
-            mvarTourmalineFrameSender = new TourmalineFrameSender("ws://localhost:5237/stream");
+            string auxUrl = ConfigurationManager.AppSettings["WebSocketMiddlewareUrl"];
+            byte.TryParse(ConfigurationManager.AppSettings["CompressionQuality"], out mvarTourmalineCompressionQuality);
+            mvarTourmalineFrameSender = new TourmalineFrameSender(auxUrl);            
             mvarTourmalineFrameSender.Start();
-            Console.WriteLine("[Tourmaline] Emisor de frames iniciado.");
+            Console.WriteLine($"[Tourmaline] Emisor de frames iniciado en {auxUrl}.");
             //#######TOURMALINE#######################################################################################
             Initialize();
         }
@@ -1964,6 +1963,7 @@ namespace Orts.Viewer3D
                             bmp.PixelFormat);
                         System.Runtime.InteropServices.Marshal.Copy(mvarFrameBuffer, 0, bmpData.Scan0, mvarFrameBuffer.Length);
                         bmp.UnlockBits(bmpData);
+                        //Console.WriteLine($"[Tourmaline] Created frame {Simulator.ClockTime}");
 
                         //Lo comprimo a JPEG en memoria
                         using (MemoryStream stream = new MemoryStream())
@@ -1972,17 +1972,17 @@ namespace Orts.Viewer3D
                                 .First(c => c.FormatID == System.Drawing.Imaging.ImageFormat.Jpeg.Guid);
                             if (null == encoder) Console.WriteLine("No se encontró el encoder JPEG");
                             System.Drawing.Imaging.EncoderParameters encParams = new System.Drawing.Imaging.EncoderParameters(1);
-                            encParams.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)COMPRESSION_QUALITY);
+                            encParams.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)mvarTourmalineCompressionQuality);
                             try
                             {
-                                //Console.WriteLine($"Encoder: {encoder?.FormatDescription}, Quality: {COMPRESSION_QUALITY}, PixelFormat: {bmp.PixelFormat}");
                                 bmp.Save(stream, encoder, encParams);
                                 byte[] buffer = stream.ToArray();
                                 mvarTourmalineFrameSender.EnqueueFrame(buffer);
+                                //Console.WriteLine($"[Tourmaline] Eqeued frame {Simulator.ClockTime}");
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"Error al guardar JPEG: {ex.Message}");
+                                Console.WriteLine($"[Tourmaline] Error al guardar JPEG: {ex.Message}");
                             }
                         }
                     }

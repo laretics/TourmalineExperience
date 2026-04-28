@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Linq;
 using System.Net.WebSockets;
 using System.Text;
@@ -12,7 +13,7 @@ namespace Orts.Viewer3D.Tourmaline
     class TourmalineFrameSender:IDisposable
     {
         private readonly BlockingCollection<byte[]> mcolFrames;
-        private readonly int MAX_LENGTH = 10; //Máximo de fotogramas que vamos a encolar, para evitar lag.
+        private int mvarLenght = 2; //Máximo de fotogramas que vamos a encolar, para evitar lag.
         private ClientWebSocket mvarSocket; //Canal de transmisión.
         private readonly Uri mvarUri;
         private readonly CancellationTokenSource mvarCancellationToken = new CancellationTokenSource();
@@ -20,7 +21,8 @@ namespace Orts.Viewer3D.Tourmaline
 
         public TourmalineFrameSender(string url)
         {
-            mcolFrames = new BlockingCollection<byte[]>(MAX_LENGTH);
+            int.TryParse(ConfigurationManager.AppSettings["StreamBufferSize"], out mvarLenght);
+            mcolFrames = new BlockingCollection<byte[]>(mvarLenght);
             mvarUri = new Uri(url);
         }
         public void Start()
@@ -40,30 +42,27 @@ namespace Orts.Viewer3D.Tourmaline
             {
                 try
                 {
-                    if(mcolFrames.Count>0)
+                    if (mvarSocket != null && mvarSocket.State != WebSocketState.Open)
                     {
-                        if (null != mvarSocket && mvarSocket.State != WebSocketState.Open)
-                        {
-                            mvarSocket.Dispose();
-                            mvarSocket = null;
-                        }
-                        if(null==mvarSocket)
-                        {
-                            mvarSocket = new ClientWebSocket();
-                            await mvarSocket.ConnectAsync(mvarUri, mvarCancellationToken.Token);
-                        }
-                        byte[] auxFrame = mcolFrames.Take(mvarCancellationToken.Token);                        
-                        await mvarSocket.SendAsync(new ArraySegment<byte>(auxFrame), WebSocketMessageType.Binary, true, mvarCancellationToken.Token);
-                        //Console.WriteLine($"[TourmalineFrameSender] Frame sent {DateTime.Now}");
+                        mvarSocket.Dispose();
+                        mvarSocket = null;
                     }
+                    if (mvarSocket == null)
+                    {
+                        mvarSocket = new ClientWebSocket();
+                        await mvarSocket.ConnectAsync(mvarUri, mvarCancellationToken.Token);
+                    }
+                    byte[] auxFrame = mcolFrames.Take(mvarCancellationToken.Token);
+                    await mvarSocket.SendAsync(new ArraySegment<byte>(auxFrame), WebSocketMessageType.Binary, true, mvarCancellationToken.Token);
+                    //Console.WriteLine($"[TourmalineFrameSender] Frame sent {DateTime.Now}");
                 }
-                catch(OperationCanceledException)
+                catch (OperationCanceledException)
                 {
                     break;
                 }
                 catch (Exception ex)
                 {
-                    //Esperamos un poco y reintentamos
+                    Console.WriteLine($"[TourmalineFrameSender] Error: {ex.Message}");
                     await Task.Delay(500, mvarCancellationToken.Token);
                 }
             }

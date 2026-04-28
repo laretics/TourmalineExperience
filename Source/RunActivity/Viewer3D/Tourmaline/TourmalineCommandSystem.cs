@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Configuration;
 using System.IO;
 using System.IO.Pipes;
 using System.Threading;
@@ -19,6 +20,7 @@ namespace Orts.Viewer3D.Tourmaline
 
         public TourmalineCommandSystem(Viewer viewer)
         {
+            mvarPipeName = ConfigurationManager.AppSettings["CommandPipeName"];
             mvarViewer = viewer;
         }
 
