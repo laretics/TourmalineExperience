@@ -8,7 +8,7 @@ using Orts.Simulation.Physics;
 using ORTS.Common;
 using ORTS.Common.Input;
 
-namespace Orts.Viewer3D
+namespace Orts.Viewer3D.Tourmaline
 {
     public class TourmalineCamera : LookAtCamera
     {

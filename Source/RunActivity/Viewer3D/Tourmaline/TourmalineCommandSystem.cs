@@ -7,7 +7,7 @@ using Microsoft.Xna.Framework;
 using Newtonsoft.Json;
 using Orts.Simulation.Physics;
 
-namespace Orts.Viewer3D
+namespace Orts.Viewer3D.Tourmaline
 {
     public class TourmalineCommandSystem
     {

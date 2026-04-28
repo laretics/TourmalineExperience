@@ -44,6 +44,7 @@ using Orts.Viewer3D.Processes;
 using Orts.Viewer3D.RollingStock;
 using Orts.Viewer3D.WebServices;
 using Orts.Viewer3D.WebServices.SwitchPanel;
+using Orts.Viewer3D.Tourmaline;
 using ORTS.Common;
 using ORTS.Common.Input;
 using ORTS.Scripting.Api;
@@ -217,25 +218,19 @@ namespace Orts.Viewer3D
 
         //#######TOURMALINE#######################################################################################
         // Control desde API-REST
-        private TourmalineCommandSystem mvarTourmalineCommandSystem; //Elemento para interactuar con el server API-REST
-        private TourmalineFrameSender mvarTourmalineFrameSender; //Elemento para enviar frames a Tourmaline
+        private TourmalineCommandSystem mvarTourmalineCommandSystem; //Elemento para interactuar con el server API-REST       
+        // Emisor de frames
+        private TourmalineFrameSender mvarTourmalineFrameSender;
 
         // Características del streaming
         private bool mvarEnableStreaming = true;
-        private Process mvarFFmpegProcess;
 
         public const int STREAM_WIDTH = 800;
-        public const int STREAM_HEIGHT = 600;      // Cambia a 520 si prefieres tu prueba actual
-        private const int STREAM_FPS = 20;
+        public const int STREAM_HEIGHT = 600;
+        public const int STREAM_FPS = 20;
+        public const byte COMPRESSION_QUALITY = 75;
 
         private byte[] mvarFrameBuffer;
-        private System.Collections.Concurrent.ConcurrentQueue<byte[]> mcolFrameQueue
-            = new System.Collections.Concurrent.ConcurrentQueue<byte[]>();
-
-        private Thread mvarEncodingThread;
-        private bool mvarEncodingRunning = false;
-
-        private readonly string mvarRTSPUrl = "rtsp://127.0.0.1:8554/openrails";
         //#######TOURMALINE#######################################################################################
 
         enum VisibilityState
@@ -414,7 +409,9 @@ namespace Orts.Viewer3D
             }
             //#######TOURMALINE#######################################################################################
             mvarTourmalineCommandSystem = new TourmalineCommandSystem(this);
-            mvarTourmalineFrameSender = new TourmalineFrameSender();
+            mvarTourmalineFrameSender = new TourmalineFrameSender("ws://localhost:5237/stream");
+            mvarTourmalineFrameSender.Start();
+            Console.WriteLine("[Tourmaline] Emisor de frames iniciado.");
             //#######TOURMALINE#######################################################################################
             Initialize();
         }
@@ -1749,19 +1746,11 @@ namespace Orts.Viewer3D
         {
             InfoDisplay.Terminate();
             //#######TOURMALINE#######################################################################################
-            if (mvarFFmpegProcess != null && !mvarFFmpegProcess.HasExited)
-            {
-                mvarFFmpegProcess.StandardInput.Close();
-                mvarFFmpegProcess.WaitForExit(1000);
-                mvarFFmpegProcess.Dispose();
-            }
-
-            mvarEncodingRunning = false;
-            if (mvarEncodingThread != null && mvarEncodingThread.IsAlive)
-                mvarEncodingThread.Join(500);
-
             if (null != mvarTourmalineCommandSystem)
                 mvarTourmalineCommandSystem.Stop();
+
+            if (null != mvarTourmalineFrameSender)
+                mvarTourmalineFrameSender.Dispose();
             //#######TOURMALINE#######################################################################################
         }
 
@@ -1944,7 +1933,7 @@ namespace Orts.Viewer3D
                 MessagesWindow.AddMessage(Catalog.GetString("Game saved"), 5);
             }
             //#######TOURMALINE#######################################################################################
-            if (mvarEnableStreaming && null!=mvarTourmalineFrameSender)
+            if (mvarEnableStreaming)
             {
                 try
                 {
@@ -1954,20 +1943,49 @@ namespace Orts.Viewer3D
 
                     GraphicsDevice.GetBackBufferData(mvarFrameBuffer);
 
-                    //Conversión de BGRA a RGBA
+                    // Conversión de BGRA a ARGB y forzar alfa a 255
                     for (int i = 0; i < bufferSize; i += 4)
                     {
-                        byte temp = mvarFrameBuffer[i]; // Blue
-                        mvarFrameBuffer[i] = mvarFrameBuffer[i + 2]; // Red
-                        mvarFrameBuffer[i + 2] = temp; // Blue
+                        byte r = mvarFrameBuffer[i];     // Blue
+                        byte g = mvarFrameBuffer[i + 1]; // Green
+                        byte b = mvarFrameBuffer[i + 2]; // Red
+                                                         // byte a = mvarFrameBuffer[i + 3]; // Alpha original (no se usa)
+                        mvarFrameBuffer[i] = b;      // Blue
+                        mvarFrameBuffer[i + 1] = g;      // Green
+                        mvarFrameBuffer[i + 2] = r;      // Red
+                        mvarFrameBuffer[i + 3] = 255;    // Alpha
                     }
 
-                    byte[] frameDataCopy = (byte[])mvarFrameBuffer.Clone(); //Pasamos una copia para evitar problemas.
-                    _ = Task.Run(async () =>
+                    using (System.Drawing.Bitmap bmp = new System.Drawing.Bitmap(DisplaySize.X, DisplaySize.Y, System.Drawing.Imaging.PixelFormat.Format32bppArgb))
                     {
-                        await mvarTourmalineFrameSender.SendFrameAsync(frameDataCopy);
+                        System.Drawing.Imaging.BitmapData bmpData = bmp.LockBits(
+                            new System.Drawing.Rectangle(0, 0, bmp.Width, bmp.Height),
+                            System.Drawing.Imaging.ImageLockMode.WriteOnly,
+                            bmp.PixelFormat);
+                        System.Runtime.InteropServices.Marshal.Copy(mvarFrameBuffer, 0, bmpData.Scan0, mvarFrameBuffer.Length);
+                        bmp.UnlockBits(bmpData);
 
-                    });
+                        //Lo comprimo a JPEG en memoria
+                        using (MemoryStream stream = new MemoryStream())
+                        {
+                            System.Drawing.Imaging.ImageCodecInfo encoder = System.Drawing.Imaging.ImageCodecInfo.GetImageEncoders()
+                                .First(c => c.FormatID == System.Drawing.Imaging.ImageFormat.Jpeg.Guid);
+                            if (null == encoder) Console.WriteLine("No se encontró el encoder JPEG");
+                            System.Drawing.Imaging.EncoderParameters encParams = new System.Drawing.Imaging.EncoderParameters(1);
+                            encParams.Param[0] = new System.Drawing.Imaging.EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)COMPRESSION_QUALITY);
+                            try
+                            {
+                                //Console.WriteLine($"Encoder: {encoder?.FormatDescription}, Quality: {COMPRESSION_QUALITY}, PixelFormat: {bmp.PixelFormat}");
+                                bmp.Save(stream, encoder, encParams);
+                                byte[] buffer = stream.ToArray();
+                                mvarTourmalineFrameSender.EnqueueFrame(buffer);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine($"Error al guardar JPEG: {ex.Message}");
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
