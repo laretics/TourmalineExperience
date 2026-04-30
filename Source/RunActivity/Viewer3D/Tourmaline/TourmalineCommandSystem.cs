@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.IO.Pipes;
@@ -125,34 +126,41 @@ namespace Orts.Viewer3D.Tourmaline
 
         private void ExecuteCameraCommand(TourmalineCameraCommand cmd)
         {
-            if (cmd.Action == null)
-                return;
-
-            string action = cmd.Action.ToLower();
-
-            if (action == "setcenitalview")
+            switch (cmd.Order)
             {
-                mvarViewer.TourmalineCamera.SetCenitalView();
+                case TourmalineCameraOrder.Orbit:
+                    auxSwitchTourmalineCam();
+                    mvarViewer.TourmalineCamera.SetOrbitMode(cmd.Speed ? 10f : 4f);
+                    break;
+                case TourmalineCameraOrder.Lateral:
+                    auxSwitchTourmalineCam();
+                    mvarViewer.TourmalineCamera.SetLateralView(cmd.Side);
+                    break;
+                case TourmalineCameraOrder.Cenital:
+                    auxSwitchTourmalineCam();
+                    break;
+                case TourmalineCameraOrder.Drone:
+                    auxSwitchTourmalineCam();
+                    mvarViewer.TourmalineCamera.SetDroneView(cmd.Side);
+                    break;
+                case TourmalineCameraOrder.TrackSide:
+                    if (mvarViewer.Camera != mvarViewer.TracksideCamera)
+                    {
+                        mvarViewer.Camera = mvarViewer.TracksideCamera;
+                        mvarViewer.Camera.Activate();
+                    }
+                    break;
+                default:
+                    Console.WriteLine("[Tourmaline] Unknown camera action: " + cmd.Order);
+                    break;                
             }
-            else if (action == "settraseraelevadaview")
+        }
+        private void auxSwitchTourmalineCam()
+        {
+            if (mvarViewer.Camera != mvarViewer.TourmalineCamera)
             {
-                mvarViewer.TourmalineCamera.SetTraseraElevadaView();
-            }
-            else if (action == "setlateralview")
-            {
-                bool isLeft = (cmd.Side != null && cmd.Side.ToLower() == "left");
-                mvarViewer.TourmalineCamera.SetLateralView(isLeft);
-            }
-            else if(action=="orbit")
-            {
-                if(cmd.OrbitSpeed.HasValue)
-                {
-                    mvarViewer.TourmalineCamera.SetOrbitMode(cmd.OrbitSpeed.Value);
-                }                
-            }
-            else
-            {
-                Console.WriteLine("[Tourmaline] Unknown camera action: " + cmd.Action);
+                mvarViewer.Camera = mvarViewer.TourmalineCamera;
+                mvarViewer.TourmalineCamera.Activate();
             }
         }
         private void ExecuteClimateCommand(TourmalineWeatherCommand cmd)
@@ -196,26 +204,22 @@ namespace Orts.Viewer3D.Tourmaline
         public object Data { get; set; } //Contenido del comando
     }
 
-    public class TourmalineFrameCommand
+    public enum TourmalineCameraOrder:byte
     {
-        public byte[] FrameData { get; set; } = Array.Empty<byte>();
+        None = 0,
+        Cenital = 1,
+        Lateral = 2,
+        Drone=3,
+        Orbit = 4,
+        TrackSide = 5,
+        Other = 255
     }
-
     // Clase auxiliar para los comandos
     public class TourmalineCameraCommand
-    {        
-        public string Action { get; set; }
-        public string Side { get; set; }
-        public float? Distance { get; set; }
-        public float? Azimuth { get; set; }
-        public float? Elevation { get; set; }
-        public float? OrbitSpeed{ get; set; }
-
-        public TourmalineCameraCommand()
-        {
-            Action = "";
-            Side = "";
-        }
+    {
+        public TourmalineCameraOrder Order { get; set; }
+        public bool Side { get; set; }
+        public bool Speed { get; set; }
     }
     public class TourmalineWeatherCommand
     {

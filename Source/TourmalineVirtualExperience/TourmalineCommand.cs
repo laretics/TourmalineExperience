@@ -5,16 +5,22 @@
         public string Type { get; set; } = string.Empty;
         public object? Data { get; set; }
     }
-
+    public enum TourmalineCameraOrder : byte
+    {
+        None = 0,
+        Cenital = 1,
+        Lateral = 2,
+        Drone = 3,
+        Orbit = 4,
+        TrackSide=5,
+        Other = 255
+    }
 
     public class TourmalineCameraCommand
     {
-        public string Action{ get; set;  }  = string.Empty;
-        public string? Side{ get; set; }
-        public float? Distance{ get; set; }
-        public float? Azimuth{ get; set; }
-        public float? Elevation{ get; set; }
-        public float? OrbitSpeed{ get; set; }
+        public TourmalineCameraOrder Order { get; set;  }
+        public bool Side{ get; set; }
+        public bool Speed { get; set; }
     }
 
     public class TourmalineWeatherCommand
