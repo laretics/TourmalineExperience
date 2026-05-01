@@ -56,6 +56,7 @@ namespace Orts.Viewer3D
 {
     public class Viewer
     {
+        #region Collapsible0
         public static GettextResourceManager Catalog { get; private set; }
         public static Random Random { get; private set; }
         // User setups.
@@ -216,7 +217,7 @@ namespace Orts.Viewer3D
         // Dictionary associating a specific shape file path (string) with the track profile index to be used for that shape
         // Shape file locations are to be matched ignoring case for simplicity
         public Dictionary<string, int> TrackProfileIndicies = new Dictionary<string, int>(StringComparer.InvariantCultureIgnoreCase);
-
+        #endregion Collapsible0
         //#######TOURMALINE#######################################################################################
         // Control desde API-REST
         private TourmalineCommandSystem mvarTourmalineCommandSystem; //Elemento para interactuar con el server API-REST       
@@ -229,7 +230,7 @@ namespace Orts.Viewer3D
 
         private byte[] mvarFrameBuffer;
         //#######TOURMALINE#######################################################################################
-
+        #region Collapsible1
         enum VisibilityState
         {
             Visible,
@@ -302,6 +303,7 @@ namespace Orts.Viewer3D
         public bool CameraFrontUpdated { get; set; }
         public bool CameraRearUpdated { get; set; }
 
+        
         /// <summary>
         /// Finds time of last entry to set ReplayEndsAt and provide the Replay started message.
         /// </summary>
@@ -324,6 +326,7 @@ namespace Orts.Viewer3D
             }
         }
 
+        #endregion Collapsible1
         /// <summary>
         /// Initializes a new instances of the <see cref="Viewer3D"/> class based on the specified <paramref name="simulator"/> and <paramref name="game"/>.
         /// </summary>
@@ -415,6 +418,7 @@ namespace Orts.Viewer3D
             Initialize();
         }
 
+        #region Collapsible2
         [CallOnThread("Updater")]
         public void Save(BinaryWriter outf, string fileStem)
         {
@@ -990,7 +994,7 @@ namespace Orts.Viewer3D
                 Trace.WriteLine(new FileLoadException(smsFilePath, error));
             }
         }
-
+        #endregion Collapsible2
         [CallOnThread("Updater")]
         void HandleUserInput(ElapsedTime elapsedTime)
         {

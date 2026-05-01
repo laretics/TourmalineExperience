@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.IO.Pipes;
+using Microsoft.AspNetCore.Hosting.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using TourmalineVirtualExperience;
 
@@ -97,23 +98,24 @@ public class TourmalineVirtualService
     public async Task<object> SendCommandAsync(object commandJson)
     {
         if (null== mvarSimulatorProcess  || mvarSimulatorProcess.HasExited)
-            return new { Success = false, Message = "No hay ninguna simulación en ejecución." };
+            return new { Success = false, Message = "There are no running ORTS instances." };
 
         try
         {
-            using (var client = new NamedPipeClientStream(".", "TourmalinePipe", PipeDirection.Out))
+            using (var client = new NamedPipeClientStream(".", "TourmalinePipe", PipeDirection.InOut))
             {
-                await client.ConnectAsync(2000);   // timeout 2 segundos
+                await client.ConnectAsync(2000);
 
-                using (var writer = new StreamWriter(client))
-                {
-                    string json = System.Text.Json.JsonSerializer.Serialize(commandJson);
-                    await writer.WriteLineAsync(json);
-                    await writer.FlushAsync();
-                }
+                var writer = new StreamWriter(client, System.Text.Encoding.UTF8) { AutoFlush = true };
+                var reader = new StreamReader(client, System.Text.Encoding.UTF8);
+
+                string json = System.Text.Json.JsonSerializer.Serialize(commandJson);
+                await writer.WriteLineAsync(json);
+                await writer.FlushAsync();
+
+                string? response = await reader.ReadLineAsync();
+                return new { Success = true, Message = "Sending OK", Response = response };
             }
-
-            return new { Success = true, Message = "Comando enviado correctamente al simulador." };
         }
         catch (Exception ex)
         {
@@ -147,3 +149,20 @@ public class TourmalineVirtualService
         return string.Join(" ", args);
     }
 }
+
+/*
+ 
+  {
+  "Type": 3,
+  "Data": {
+    "objectiveSpeed": 80,
+    "InsideLights": true,
+    "OutsideLights": 2,
+    "Pantograph": true,
+    "LeftDoors": false,
+    "RightDoors": false,
+    "Autopilot": false
+  }
+}
+
+*/

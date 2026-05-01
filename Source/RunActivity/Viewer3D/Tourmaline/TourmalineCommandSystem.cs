@@ -5,9 +5,14 @@ using System.IO;
 using System.IO.Pipes;
 using System.Threading;
 using EmbedIO.Utilities;
+using Microsoft.CodeAnalysis.Operations;
 using Microsoft.Xna.Framework;
 using Newtonsoft.Json;
+using Orts.Common;
+using Orts.Formats.Msts;
+using Orts.Simulation.AIs;
 using Orts.Simulation.Physics;
+using Orts.Simulation.RollingStocks;
 
 namespace Orts.Viewer3D.Tourmaline
 {
@@ -15,7 +20,6 @@ namespace Orts.Viewer3D.Tourmaline
     {
         private readonly Viewer mvarViewer;
         private readonly string mvarPipeName = "TourmalinePipe";
-        private NamedPipeServerStream mvarPipeServer;
         private Thread mvarListenerThread;
         private bool mvarRunning;
 
@@ -40,10 +44,6 @@ namespace Orts.Viewer3D.Tourmaline
         public void Stop()
         {
             mvarRunning = false;
-            if (mvarPipeServer != null)
-            {
-                try { mvarPipeServer.Dispose(); } catch { }
-            }
             Console.WriteLine("[Tourmaline] Command system stopped.");
         }
 
@@ -53,21 +53,34 @@ namespace Orts.Viewer3D.Tourmaline
             {
                 try
                 {
-                    mvarPipeServer = new NamedPipeServerStream(mvarPipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message);
-                    mvarPipeServer.WaitForConnection();
-
-                    using (var reader = new StreamReader(mvarPipeServer))
+                    using (NamedPipeServerStream auxPipeServer = new NamedPipeServerStream(mvarPipeName,PipeDirection.InOut,1,PipeTransmissionMode.Message))
                     {
-                        string jsonCommand = reader.ReadLine();
+                        auxPipeServer.WaitForConnection();
+                        StreamReader auxReader = new StreamReader(auxPipeServer, System.Text.Encoding.UTF8);
+                        string jsonCommand = auxReader.ReadLine();
+                        StreamWriter auxWriter = new StreamWriter(auxPipeServer, System.Text.Encoding.UTF8) { AutoFlush=true};
+                        bool responded = false;
 
-                        if (!string.IsNullOrEmpty(jsonCommand))
+                        try
                         {
-                            ProcessCommand(jsonCommand);
+                            if (!string.IsNullOrEmpty(jsonCommand))
+                            {
+                                ProcessCommand(jsonCommand, auxWriter);
+                                responded = true;
+                            }
                         }
-                    }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine("[Tourmaline] Error interno: " + ex.Message);
+                            // Siempre responde aunque haya error
+                            auxWriter.WriteLine("{\"success\":false,\"error\":\"" + ex.Message.Replace("\"", "\\\"") + "\"}");
+                            responded = true;
+                        }
+                        // Si por alguna razón no se respondió, responde aquí
+                        if (!responded)
+                            auxWriter.WriteLine("{\"success\":false,\"error\":\"No command processed\"}");
 
-                    if (mvarPipeServer.IsConnected)
-                        mvarPipeServer.Disconnect();
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -77,44 +90,52 @@ namespace Orts.Viewer3D.Tourmaline
             }
         }
 
-        private void ProcessCommand(string jsonCommand)
+        private void ProcessCommand(string jsonCommand, StreamWriter writer)
         {
             try
             {
                 TourmalineCommand envelope = JsonConvert.DeserializeObject<TourmalineCommand>(jsonCommand);
-                if (null == envelope|| null== envelope.Type || envelope.Type.Length<1) return;
+                if (null == envelope) return;
                 
-                switch(envelope.Type.ToLower())
+                switch(envelope.Type)
                 {
-                    case "camera":
+                    case TourmalineCommandType.Camera:
                         if(null!=envelope.Data)
                         {
                             TourmalineCameraCommand cameraCmd = JsonConvert.DeserializeObject<TourmalineCameraCommand>(envelope.Data.ToString());
                             if (null != cameraCmd && null != mvarViewer.TourmalineCamera)
+                            {
                                 ExecuteCameraCommand(cameraCmd);
+                                SendTelemetryResponse(writer, true);
+                            }
                         }
                         break;
 
-                    case "weather":
+                    case TourmalineCommandType.Weather:
                         if(null!=envelope.Data)
                         {
                             TourmalineWeatherCommand weatherCmd = JsonConvert.DeserializeObject<TourmalineWeatherCommand>(envelope.Data.ToString());
                             if(null!=weatherCmd)
+                            {
                                 ExecuteClimateCommand(weatherCmd);
+                                SendTelemetryResponse(writer, true);
+                            }
                         }
                         break;
-                    case "train":
+                    case TourmalineCommandType.Simulation:
                         if(null!=envelope.Data)
                         {
                             TourmalineTrainCommand trainCmd = JsonConvert.DeserializeObject<TourmalineTrainCommand>(envelope.Data.ToString());
                             if(null!=trainCmd) 
+                            {
                                 ExecuteTrainCommand(trainCmd);
-
+                                SendTelemetryResponse(writer, true);
+                            }                                
                         }
                         break;
-
                     default:
                         Console.WriteLine($"[Tourmaline] Unknown command type: {envelope.Type}");
+                        SendTelemetryResponse(writer, false);
                         break; 
                 }                                   
             }
@@ -150,6 +171,13 @@ namespace Orts.Viewer3D.Tourmaline
                         mvarViewer.Camera.Activate();
                     }
                     break;
+                case TourmalineCameraOrder.Brakeman:
+                    if(mvarViewer.Camera !=mvarViewer.BrakemanCamera)
+                    {
+                        mvarViewer.Camera = mvarViewer.BrakemanCamera;
+                        mvarViewer.Camera.Activate();
+                    }
+                    break;
                 default:
                     Console.WriteLine("[Tourmaline] Unknown camera action: " + cmd.Order);
                     break;                
@@ -180,30 +208,130 @@ namespace Orts.Viewer3D.Tourmaline
         }
         private void ExecuteTrainCommand(TourmalineTrainCommand cmd)
         {
-            if(cmd.objectiveSpeed.HasValue)
+            Train playerTrain = mvarViewer.PlayerLocomotive?.Train;
+            if(null==playerTrain)
             {
-                Train playerTrain = mvarViewer.PlayerLocomotive?.Train;
-                if(null!=playerTrain)
+                Console.WriteLine("[Tourmaline] No PlayerTrain found");
+            }
+            else
+            {
+                if (cmd.objectiveSpeed.HasValue)
                 {
                     float targetSpeedMpS = cmd.objectiveSpeed.Value / 3.6f;
                     playerTrain.ForcedSpeedMpS = targetSpeedMpS;
                     Console.WriteLine($"[Tourmaline] Player train target speed set to {cmd.objectiveSpeed.Value:F1} Km/h");
                 }
-                else
+                if (cmd.Autopilot.HasValue)
                 {
-                    Console.WriteLine("[Tourmaline] No PlayerTrain found");
+                    if (cmd.Autopilot.Value)
+                    {
+                        if(!playerTrain.Autopilot)
+                        {
+                            bool success = ((AITrain)playerTrain).SwitchToAutopilotControl();
+                            if(success)
+                                Console.WriteLine($"[Tourmaline] Player train now running on autopilot");
+                        }
+                    }
+                    else
+                    {
+                        if(playerTrain.Autopilot)
+                        {
+                            playerTrain.RequestToggleManualMode();
+                            Console.WriteLine($"[Tourmaline] Player train now running on manual mode");
+                        }                            
+                    }                        
                 }
+                if(cmd.InsideLights.HasValue || cmd.Pantograph.HasValue ||cmd.OutsideLights.HasValue)
+                {
+                    TrainCar auxLoco = mvarViewer.PlayerLocomotive;                    
+                    if (null != auxLoco)
+                    {
+                        MSTSLocomotive locomotive = (MSTSLocomotive)auxLoco;
+                        if (cmd.InsideLights.HasValue)
+                        {
+                            locomotive.CabLightOn = cmd.InsideLights.Value;
+                            Console.WriteLine("[Tourmaline] Inside lights changed");
+                        }                            
+                        if (cmd.OutsideLights.HasValue)
+                        {
+                            switch (cmd.OutsideLights.Value)
+                            {
+                                case 0: locomotive.SignalEvent(Orts.Common.Event._HeadlightOff); break;
+                                case 1: locomotive.SignalEvent(Orts.Common.Event._HeadlightDim); break;
+                                case 2: locomotive.SignalEvent(Orts.Common.Event._HeadlightOn); break;
+                            }
+                            Console.WriteLine("[Tourmaline] Outside lights changed");
+                        }
+                        if(cmd.Pantograph.HasValue)
+                        {
+                            if(locomotive is MSTSElectricLocomotive)
+                            {
+                                locomotive.SignalEvent(cmd.Pantograph.Value? Orts.Common.Event.Pantograph1Up: Orts.Common.Event.Pantograph1Down);
+                                locomotive.SignalEvent(cmd.Pantograph.Value ? Orts.Common.Event.Pantograph2Up : Orts.Common.Event.Pantograph2Down);
+                                Console.WriteLine("[Tourmaline] Pantographs changed");
+                            }
+                        }
+                        if(cmd.LeftDoors.HasValue)
+                        {
+                            playerTrain.SetDoors(Simulation.RollingStocks.SubSystems.DoorSide.Left, cmd.LeftDoors.Value);
+                            Console.WriteLine("[Tourmaline] Left doors changed");
+                        }                            
+                        if (cmd.RightDoors.HasValue)
+                        {
+                            playerTrain.SetDoors(Simulation.RollingStocks.SubSystems.DoorSide.Right, cmd.RightDoors.Value);
+                            Console.WriteLine("[Tourmaline] Right doors changed");
+                        }                        
+                    }
+                }
+            }
+        }
+        private void SendTelemetryResponse(StreamWriter writer, bool success)
+        {
+            TourmalineTelemetryResponse response = new TourmalineTelemetryResponse();
+            response.success = success;
+            Train playerTrain = mvarViewer.PlayerLocomotive?.Train;
+            if (null != playerTrain)
+            {
+                response.Speed = (int)(playerTrain.SpeedMpS / 3.6f);
+                double latitude = 0;
+                double longitude = 0;
+                new WorldLatLon().ConvertWTC(mvarViewer.PlayerLocomotive.RearCouplerLocationTileX,
+                mvarViewer.PlayerLocomotive.RearCouplerLocationTileZ,
+                mvarViewer.PlayerLocomotive.RearCouplerLocation,
+                ref latitude, ref longitude);
+                response.Latitude = latitude;
+                response.Longitude = longitude;
+            }           
+            string responseJson = JsonConvert.SerializeObject(response);
+            
+            try
+            {
+                if(null!=writer)
+                {                    
+                    writer.WriteLine(responseJson);
+                    writer.Flush();
+                }
+            }
+            catch(Exception ex) 
+            {
+                Console.WriteLine("[Tourmaline] Error sending telemetry: " + ex.Message);
             }
         }
     }
 
-
     public class TourmalineCommand
     {
-        public string Type { get; set; } = string.Empty;
+        public TourmalineCommandType Type { get; set; } = TourmalineCommandType.None;
         public object Data { get; set; } //Contenido del comando
     }
-
+    public enum TourmalineCommandType : byte
+    {
+        None = 0,
+        Camera = 1,
+        Weather = 2,
+        Simulation = 3,
+        Other = 255
+    }
     public enum TourmalineCameraOrder:byte
     {
         None = 0,
@@ -212,6 +340,7 @@ namespace Orts.Viewer3D.Tourmaline
         Drone=3,
         Orbit = 4,
         TrackSide = 5,
+        Brakeman = 6,
         Other = 255
     }
     // Clase auxiliar para los comandos
@@ -231,5 +360,18 @@ namespace Orts.Viewer3D.Tourmaline
     public class TourmalineTrainCommand
     {
         public int? objectiveSpeed{ get; set; } //Velocidad objetivo
+        public bool? InsideLights { get; set; } //Apagado o encendido
+        public byte? OutsideLights { get; set; } //0: Apagado , 1: Cortas, 2: Largas
+        public bool? Pantograph{ get; set; } //Pantógrafos
+        public bool? LeftDoors { get; set; }
+        public bool? RightDoors{ get; set; }
+        public bool? Autopilot{ get; set; } //Piloto automático del modo demo
+    }
+    public class TourmalineTelemetryResponse
+    {
+        public bool success{ get; set; }
+        public double Latitude{ get; set; }
+        public double Longitude{ get; set; }
+        public int Speed{ get; set; }
     }
 }

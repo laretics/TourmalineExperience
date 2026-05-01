@@ -1665,7 +1665,8 @@ namespace Orts.Viewer3D
         protected override void SetCameraCar(TrainCar car)
         {
             base.SetCameraCar(car);
-            attachedLocation = new Vector3(1.8f, 2.0f, attachedCar.CarLengthM / 2 - 0.3f);
+            //attachedLocation = new Vector3(1.8f, 2.0f, attachedCar.CarLengthM / 2 - 0.3f);
+            attachedLocation = new Vector3(0.0f, 2.0f, attachedCar.CarLengthM / 2 - 0.3f);
             attachedToRear = car.Train.Cars[0] != car;
         }
 
