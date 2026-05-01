@@ -12,7 +12,8 @@ builder.Services.AddOpenApi();
 builder.Services.AddSingleton<TourmalineVirtualService>();
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+var enableSwaggerUI = app.Configuration.GetValue<bool>("EnableSwaggerUI");
+if (app.Environment.IsDevelopment()||enableSwaggerUI)
 {
     app.MapOpenApi();
     app.UseSwaggerUI(options =>
