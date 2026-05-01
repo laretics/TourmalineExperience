@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Orts.Simulation.Physics;
@@ -76,17 +77,21 @@ namespace Orts.Viewer3D.Tourmaline
             orbitSpeed = 0f;
             targetDistance = 72f;
             targetAzimuth = izquierda ? MathHelper.ToRadians(0f) : MathHelper.ToRadians(180f);
-            targetElevation = MathHelper.ToRadians(0.5f);          // Muy baja, como pediste
+            targetElevation = MathHelper.ToRadians(0.5f); 
             currentMovementSpeed = SpeedMedium;
             followTrainRotation = false;
             isMoving = true;
         }
 
-        public void SetTraseraElevadaView()
+        public void SetDroneView(bool right)
         {
             orbitSpeed = 0f;
             targetDistance = 72f;
-            targetAzimuth = MathHelper.ToRadians(180f);
+            if (right)
+                targetAzimuth = MathHelper.ToRadians(270f);
+            else
+                targetAzimuth = MathHelper.ToRadians(180f);
+
             targetElevation = MathHelper.ToRadians(24f);
             currentMovementSpeed = SpeedSlow;
             followTrainRotation = false;
@@ -217,7 +222,7 @@ namespace Orts.Viewer3D.Tourmaline
             }
             else if (UserInput.IsPressed(UserCommand.CameraPanDown))   // Flecha Abajo
             {
-                SetTraseraElevadaView();
+                SetDroneView(DateTime.Now.Ticks % 2 == 0);
             }
             else if (UserInput.IsPressed(UserCommand.CameraPanLeft))   // Flecha Izquierda
             {
@@ -237,6 +242,5 @@ namespace Orts.Viewer3D.Tourmaline
             }
 
         }
-        
-        }
+    }
 }

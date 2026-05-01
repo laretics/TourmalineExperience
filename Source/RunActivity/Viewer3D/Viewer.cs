@@ -609,7 +609,7 @@ namespace Orts.Viewer3D
             //TourmalineCamera.SetLocation(9.64398868829035, 3.0144281781536293, 30); //Sineu
             if (TourmalineCamera.IsAvailable)
             {
-                TourmalineCamera.SetTraseraElevadaView();
+                TourmalineCamera.SetDroneView(false);
                 TourmalineCamera.Activate();                
             }                
 
@@ -1137,6 +1137,7 @@ namespace Orts.Viewer3D
                 }
             }
 
+            //#######TOURMALINE#######################################################################################
             if (UserInput.IsPressed(UserCommand.CameraCab))
             {
                 if (TourmalineCamera != null)
@@ -1150,7 +1151,7 @@ namespace Orts.Viewer3D
                     else
                     {
                         TourmalineCamera.Activate();
-                        TourmalineCamera.SetTraseraElevadaView();   // vista inicial recomendada
+                        TourmalineCamera.SetDroneView(false); // vista inicial recomendada
                         //Simulator.Confirmer.Message(ConfirmLevel.Information, "Tourmaline Camera activada (F11 para salir)");
                     }
                 }
@@ -1163,6 +1164,8 @@ namespace Orts.Viewer3D
                 //    Simulator.Confirmer.Warning(Viewer.Catalog.GetString("Cab view not available"));
                 //}
             }
+            //#######TOURMALINE#######################################################################################
+
             if (UserInput.IsPressed(UserCommand.CameraToggleThreeDimensionalCab))
             {
                 if (!CabCamera.IsAvailable)
@@ -1336,11 +1339,6 @@ namespace Orts.Viewer3D
                 mvarEnableStreaming = !mvarEnableStreaming;
                 Simulator.Confirmer.Message(ConfirmLevel.Information,
                     mvarEnableStreaming ? "Streaming activado (640x480)" : "Streaming desactivado");
-            }
-            // Controles cuando la TourmalineCamera está activa
-            if (Camera == TourmalineCamera)
-            {
-                
             }
 
             //#######TOURMALINE#######################################################################################
