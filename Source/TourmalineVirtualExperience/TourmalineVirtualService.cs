@@ -165,4 +165,22 @@ public class TourmalineVirtualService
   }
 }
 
+Vista cenital
+{
+  "Type": 1,
+  "Data": {
+    "Order": 1
+  }
+}
+
+Modo drone
+{
+  "Type": 1,
+  "Data": {
+    "Order": 3,
+    "Side": false
+  }
+}
+
+
 */

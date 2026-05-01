@@ -10,6 +10,7 @@ using Microsoft.Xna.Framework;
 using Newtonsoft.Json;
 using Orts.Common;
 using Orts.Formats.Msts;
+using Orts.Simulation;
 using Orts.Simulation.AIs;
 using Orts.Simulation.Physics;
 using Orts.Simulation.RollingStocks;
@@ -104,7 +105,7 @@ namespace Orts.Viewer3D.Tourmaline
                         {
                             TourmalineCameraCommand cameraCmd = JsonConvert.DeserializeObject<TourmalineCameraCommand>(envelope.Data.ToString());
                             if (null != cameraCmd && null != mvarViewer.TourmalineCamera)
-                            {
+                            {                                
                                 ExecuteCameraCommand(cameraCmd);
                                 SendTelemetryResponse(writer, true);
                             }
@@ -149,20 +150,21 @@ namespace Orts.Viewer3D.Tourmaline
         {
             switch (cmd.Order)
             {
-                case TourmalineCameraOrder.Orbit:
+                case TourmalineCameraOrder.Cenital:
                     auxSwitchTourmalineCam();
-                    mvarViewer.TourmalineCamera.SetOrbitMode(cmd.Speed ? 10f : 4f);
+                    mvarViewer.TourmalineCamera.SetCenitalView();
                     break;
                 case TourmalineCameraOrder.Lateral:
                     auxSwitchTourmalineCam();
                     mvarViewer.TourmalineCamera.SetLateralView(cmd.Side);
                     break;
-                case TourmalineCameraOrder.Cenital:
-                    auxSwitchTourmalineCam();
-                    break;
                 case TourmalineCameraOrder.Drone:
                     auxSwitchTourmalineCam();
                     mvarViewer.TourmalineCamera.SetDroneView(cmd.Side);
+                    break;
+                case TourmalineCameraOrder.Orbit:
+                    auxSwitchTourmalineCam();
+                    mvarViewer.TourmalineCamera.SetOrbitMode(cmd.Speed ? 10f : 4f);
                     break;
                 case TourmalineCameraOrder.TrackSide:
                     if (mvarViewer.Camera != mvarViewer.TracksideCamera)
@@ -188,7 +190,7 @@ namespace Orts.Viewer3D.Tourmaline
             if (mvarViewer.Camera != mvarViewer.TourmalineCamera)
             {
                 mvarViewer.Camera = mvarViewer.TourmalineCamera;
-                mvarViewer.TourmalineCamera.Activate();
+                mvarViewer.Camera.Activate();
             }
         }
         private void ExecuteClimateCommand(TourmalineWeatherCommand cmd)
@@ -292,15 +294,17 @@ namespace Orts.Viewer3D.Tourmaline
             Train playerTrain = mvarViewer.PlayerLocomotive?.Train;
             if (null != playerTrain)
             {
-                response.Speed = (int)(playerTrain.SpeedMpS / 3.6f);
+                response.Speed = (int)(playerTrain.SpeedMpS * 3.6f);
                 double latitude = 0;
                 double longitude = 0;
-                new WorldLatLon().ConvertWTC(mvarViewer.PlayerLocomotive.RearCouplerLocationTileX,
-                mvarViewer.PlayerLocomotive.RearCouplerLocationTileZ,
-                mvarViewer.PlayerLocomotive.RearCouplerLocation,
+                Traveller auxTraveller = playerTrain.FrontTDBTraveller;
+                new WorldLatLon().ConvertWTC
+                (auxTraveller.TileX,
+                auxTraveller.TileZ,
+                auxTraveller.Location,
                 ref latitude, ref longitude);
-                response.Latitude = latitude;
-                response.Longitude = longitude;
+                response.Latitude = MathHelper.ToDegrees((float)latitude);
+                response.Longitude = MathHelper.ToDegrees((float)longitude);
             }           
             string responseJson = JsonConvert.SerializeObject(response);
             
