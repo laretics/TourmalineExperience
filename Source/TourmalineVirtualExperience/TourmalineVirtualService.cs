@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.IO.Pipes;
+using System.Text;
 using Microsoft.AspNetCore.Hosting.Infrastructure;
 using Microsoft.Extensions.Configuration;
 using TourmalineVirtualExperience;
@@ -78,21 +79,43 @@ public class TourmalineVirtualService
 
     public async Task<StopResult> StopOpenRailsAsync()
     {
+        StopResult salida = new StopResult();
+        StringBuilder texto = new StringBuilder();
+        int contador = 0;
         if (mvarSimulatorProcess == null || mvarSimulatorProcess.HasExited)
-            return new StopResult { Success = false, Message = "No hay ninguna simulación en ejecución." };
-
-        try
         {
-            mvarSimulatorProcess.Kill(true);
-            await mvarSimulatorProcess.WaitForExitAsync();
-            mvarSimulatorProcess = null;
-
-            return new StopResult { Success = true, Message = "Simulación detenida correctamente." };
+            texto.AppendLine("No hay ningón proceso gestionado en ejecución.");
         }
-        catch (Exception ex)
+        else
         {
-            return new StopResult { Success = false, Message = $"Error al detener: {ex.Message}" };
+            try
+            {
+                contador++;
+                mvarSimulatorProcess.Kill(true);
+                await mvarSimulatorProcess.WaitForExitAsync();
+                mvarSimulatorProcess = null;
+                texto.AppendLine("Simulación detenida correctamente.");
+            }
+            catch (Exception ex)
+            {
+                contador = 0;
+                texto.AppendLine($"Error al detener: {ex.Message}");
+            }
         }
+        
+        //Si no ha habido errores, intentamos parar todos los procesos abiertos del simulador.
+        foreach (var auxProcess in Process.GetProcessesByName("RunActivity"))
+        {
+            int id = auxProcess.Id;
+            texto.AppendLine($"Parando proceso {id}");
+            contador++;
+        }
+        salida.Success = contador > 0;
+        if (salida.Success)
+            texto.AppendLine($"Procesos detenidos en total: {contador}");
+
+        salida.Message = texto.ToString();
+        return salida;
     }
 
     public async Task<object> SendCommandAsync(object commandJson)
@@ -123,13 +146,14 @@ public class TourmalineVirtualService
         }
     }
 
-    public object GetStatus()
+    public TourmalineProcessStatus? GetStatus()
     {
-        return new
+        return new TourmalineProcessStatus
         {
             IsRunning = mvarSimulatorProcess != null && !mvarSimulatorProcess.HasExited,
-            ProcessId = mvarSimulatorProcess?.Id,
-            ExecutablePath = mvarRuntimePath
+            ProcessId = null==mvarSimulatorProcess?-1:mvarSimulatorProcess.Id,
+            ExecutablePath = mvarRuntimePath,
+            StartTime = null==mvarSimulatorProcess?DateTime.MinValue:mvarSimulatorProcess.StartTime,
         };
     }
 
@@ -165,11 +189,13 @@ public class TourmalineVirtualService
   }
 }
 
-Vista cenital
 {
-  "Type": 1,
+  "Type": 2,
   "Data": {
-    "Order": 1
+    "clouds": 0.7,
+    "visibility": 5000,
+    "precipitation": 0.02,
+    "liquidity": 0.5
   }
 }
 

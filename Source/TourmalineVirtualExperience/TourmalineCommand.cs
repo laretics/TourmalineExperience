@@ -56,4 +56,12 @@
         public double Longitude { get; set; }
         public int Speed { get; set; }
     }
+
+    public class TourmalineProcessStatus
+    {
+        public bool IsRunning{ get; set; }
+        public int ProcessId{ get; set; }
+        public string ExecutablePath { get; set; }=string.Empty;
+        public DateTime StartTime{ get; set; } = DateTime.MinValue;
+    }
 }

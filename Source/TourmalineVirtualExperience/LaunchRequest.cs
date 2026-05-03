@@ -42,10 +42,4 @@ public class LaunchRequest
     [DefaultValue(0)]
     public int Climate { get; set; } = 0;
 
-    /// <summary>
-    /// Resolución de pantalla
-    /// </summary>
-    [DefaultValue("1920x1080")]
-    public string Resolution { get; set; } = "1920x1080";
-
 }
